@@ -1,7 +1,7 @@
 
 # 🤖 Anime Recommender (Content-Based)
 
-`Este proyecto` implementa un sistema de recomendación de anime basado en contenido (Content-Based Filtering) utilizando datos del catálogo de AniList y la lista de visualización personal de un usuario (exportada vía MyAnimeList/AniList XML).
+Este proyecto implementa un sistema de recomendación de anime basado en contenido (Content-Based Filtering) utilizando datos del catálogo de AniList y la lista de visualización personal de un usuario (exportada vía MyAnimeList/AniList XML).
 
 El sistema analiza los géneros, temas y descripciones de los animes que el usuario ha visto y puntuado, y luego utiliza una matriz de similitud (TF-IDF y SVD) para sugerir títulos similares de alto score que el usuario aún no ha explorado.
 
@@ -35,10 +35,39 @@ source venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
-> [!NOTE] 
-> El archivo requirements.txt contendrá librerías como pandas, numpy,          scikit-learn, etc.
+> [!Nota] 
+> El archivo `requirements.txt` contendrá librerías como pandas, numpy,          scikit-learn, etc.
 
 4. **Configuración Inicial de Datos**
 El motor necesita un archivo XML de tu lista personal (AniList o MAL) para comenzar. Coloca tu archivo XML en el directorio raíz.
 
 - **Usa tu XML:** Coloca animelist.xml en \anime_recommender\data.
+
+5. **Ejecutar el Recomendador**
+El script `train_model.py` se encargará automáticamente de descargar, limpiar y fusionar el catálogo de AniList con tu lista personal (si es la primera vez que se ejecuta o si los archivos de datos no existen).
+```bash
+python src/model/train_model.py
+```
+El programa te mostrará las estadísticas de tu lista y las 10 mejores recomendaciones.
+## 🧪 Tests
+
+Para garantizar que el aislamiento del motor de recomendación funciona correctamente sin depender de los datos de producción (evitando la "fuga de mocks"), puedes ejecutar los tests.
+
+```bash
+python -m pytest src/tests/run_tests.py
+```
+## 📄 Licencia
+
+[Licencia de uso personal / Personal Use License](https://github.com/SrAlex16/Anime_recommender/blob/main/LICENSE.md#licencia-de-uso-personal--personal-use-license)
+
+
+## 👨🏼‍💼Authors
+
+- [@SrAlex16](https://github.com/SrAlex16)
+
+
+## 🔗 Links
+![Portfolio](https://img.shields.io/badge/my_portfolio-1?style=for-the-badge&logo=ko-fi&logoColor=black)
+
+[![LinkedIn](https://img.shields.io/badge/linkedIn-1DA1F2?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/)
+
