@@ -67,7 +67,7 @@ python -m pytest src/tests/run_tests.py
 
 
 ## 🔗 Links
-![Portfolio](https://img.shields.io/badge/my_portfolio-1?style=for-the-badge&logo=ko-fi&logoColor=black)[https://www.aletm.com]
+[![Portfolio](https://img.shields.io/badge/my_portfolio-1?style=for-the-badge&logo=ko-fi&logoColor=black)](https://www.aletm.com)
 
-[![LinkedIn](https://img.shields.io/badge/linkedIn-1DA1F2?style=for-the-badge&logo=linkedin&logoColor=white)]([https://linkedin.com/](https://www.linkedin.com/in/alejandro-t-41551a140))
+[![LinkedIn](https://img.shields.io/badge/linkedIn-1DA1F2?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/)
 
