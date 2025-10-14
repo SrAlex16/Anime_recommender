@@ -1,7 +1,7 @@
 
 # 🤖 Anime Recommender (Content-Based)
 
-Este proyecto implementa un sistema de recomendación de anime basado en contenido (Content-Based Filtering) utilizando datos del catálogo de AniList y la lista de visualización personal de un usuario (exportada vía MyAnimeList/AniList XML).
+`Este proyecto` implementa un sistema de recomendación de anime basado en contenido (Content-Based Filtering) utilizando datos del catálogo de AniList y la lista de visualización personal de un usuario (exportada vía MyAnimeList/AniList XML).
 
 El sistema analiza los géneros, temas y descripciones de los animes que el usuario ha visto y puntuado, y luego utiliza una matriz de similitud (TF-IDF y SVD) para sugerir títulos similares de alto score que el usuario aún no ha explorado.
 
