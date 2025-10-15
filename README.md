@@ -35,7 +35,7 @@ source venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
-> [!Nota] 
+> [!NOTE] 
 > El archivo `requirements.txt` contendrá librerías como pandas, numpy, scikit-learn, etc.
 
 4. **Configuración Inicial de Datos**
