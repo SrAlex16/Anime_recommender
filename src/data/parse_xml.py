@@ -1,90 +1,65 @@
-# src/data/parse_xml.py (Versión con ruta corregida)
+# src/data/parse_xml.py (Ahora lee JSON, pero mantiene el nombre original)
+
 import os
 import csv
-import xml.etree.ElementTree as ET
+import json # 💡 CAMBIO: Importar JSON
 import sys
 
-# CRÍTICO: Sube TRES niveles (consistente con prepare_data.py)
+# CRÍTICO: Sube TRES niveles
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# CRÍTICO: Eliminar "./data" redundante
 DATA_DIR = os.path.join(ROOT_DIR, "data")
+# Archivos de entrada y salida
+JSON_INPUT_FILE = os.path.join(DATA_DIR, "user_mal_list.json") # 💡 CAMBIO: Archivo de entrada
 CSV_OUTPUT_FILE = os.path.join(DATA_DIR, "user_ratings.csv")
 
-def find_mal_xml_file(data_path):
-    """Busca el archivo XML en el directorio de datos."""
-    try:
-        # Crea la carpeta si no existe, antes de buscar
-        os.makedirs(data_path, exist_ok=True) 
-        
-        xml_files = [f for f in os.listdir(data_path) if f.endswith('.xml')]
-        
-        if not xml_files:
-            print(f"❌ Error: No se encontró ningún archivo XML en el directorio '{os.path.abspath(data_path)}'.")
-            print(f"💡 Consejo: coloca tu archivo exportado de MyAnimeList (.xml) en esa carpeta.")
-            return None
-            
-        return os.path.join(data_path, xml_files[0])
-    except FileNotFoundError:
-        # Este caso es poco probable si se usa os.makedirs, pero se mantiene por si acaso
-        print(f"❌ Error: El directorio '{data_path}' no existe.")
-        return None
+# ⚠️ La función find_mal_xml_file y el parser de XML han sido reemplazados
 
 def parse_and_save_ratings():
-# DATA_DIR ahora apunta a la carpeta /data correcta
-    xml_file_path = find_mal_xml_file(DATA_DIR)
-    if not xml_file_path:
+    """Lee el JSON descargado y lo convierte al CSV de ratings."""
+    
+    if not os.path.exists(JSON_INPUT_FILE) or os.path.getsize(JSON_INPUT_FILE) <= 100:
+        print(f"❌ Error: Archivo de lista de usuario '{os.path.basename(JSON_INPUT_FILE)}' no encontrado o vacío.")
+        print("💡 Consejo: Asegúrate de ejecutar 'download_mal_list.py' antes.")
         sys.exit(1)
 
     try:
-        tree = ET.parse(xml_file_path)
-        root = tree.getroot()
+        with open(JSON_INPUT_FILE, 'r', encoding='utf-8') as f:
+            user_data = json.load(f)
     except Exception as e:
-        print(f"❌ Error al parsear el XML: '{xml_file_path}'. Verifica la integridad del archivo. Error: {e}")
+        print(f"❌ Error al cargar/parsear el JSON de usuario: {e}")
         sys.exit(1)
 
     ratings = []
-    total_anime_xml = 0
 
-    # Intenta obtener el total de animes del usuario
-    total_anime_node = root.find('myinfo/user_total_anime')
-    if total_anime_node is not None:
+    for item in user_data:
         try:
-            total_anime_xml = int(total_anime_node.text)
-        except (ValueError, TypeError):
-            pass # No pasa nada si no se encuentra o es inválido
-
-    for anime_node in root.findall('anime'):
-        try:
-            id_node = anime_node.find('series_animedb_id')
-            title_node = anime_node.find('series_title')
-            score_node = anime_node.find('my_score')
-            status_node = anime_node.find('my_status')
-
-            # Requisitos mínimos
-            if id_node is None:
-                continue
-
-            anime_id = int(id_node.text)
-            title = title_node.text.strip() if title_node is not None and title_node.text else ''
-            
-            # Asegurar que el score se maneje correctamente (convertir '0' a 0)
-            score_text = score_node.text if score_node is not None and score_node.text is not None else '0'
+            # Mapeo de campos del JSON del endpoint al CSV de ratings
+            anime_id = item.get('anime_id')
+            title = item.get('anime_title', '').strip()
+            # Score (convertir a int, 0 si no existe)
+            score_text = str(item.get('score')) 
             score = int(score_text) if score_text.isdigit() else 0
             
-            # Rellenar my_status con 'NaN' o '' si no existe (el '' es mejor para nuestro filtro)
-            my_status = status_node.text.strip() if status_node is not None and status_node.text else ''
+            # Mapeo de status (viene como ID numérico en el JSON)
+            status_id = item.get('status')
+            status_map = {
+                1: 'Watching', 2: 'Completed', 3: 'On-Hold', 4: 'Dropped', 6: 'Plan to Watch'
+            }
+            my_status = status_map.get(status_id, 'NO_INTERACTUADO') 
 
-            # Solo guardar si hay un ID válido
+
+            if anime_id is None:
+                continue
+
             ratings.append({
                 'user_id': 1,
-                'anime_id': anime_id,
+                'anime_id': anime_id, 
                 'title': title,
                 'my_score': score,
                 'my_status': my_status
             })
         except Exception:
-            # Captura errores de conversión o atributos faltantes en un nodo <anime>
-            continue
+            continue # Saltar si un item está corrupto
 
     if ratings:
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -94,12 +69,10 @@ def parse_and_save_ratings():
             writer.writerows(ratings)
 
         print(f"✅ Proceso completado. Se extrajeron {len(ratings)} items.")
-        if total_anime_xml > 0 and len(ratings) == total_anime_xml:
-            print(f"🎉 Éxito: El conteo coincide con el total de su lista ({total_anime_xml}).")
-        elif total_anime_xml > 0:
-            print(f"⚠️ Aviso: Total en XML ({total_anime_xml}) no coincide con extraídos ({len(ratings)}).")
-        # 🚨 Arreglar el mensaje de impresión incorrecto del archivo
         print(f"El archivo '{os.path.basename(CSV_OUTPUT_FILE)}' se guardó en {os.path.abspath(DATA_DIR)}.")
+    else:
+        print("⚠️ No se extrajo ningún rating. El JSON estaba vacío o falló la conversión.")
+        sys.exit(1)
 
 def main():
     parse_and_save_ratings()

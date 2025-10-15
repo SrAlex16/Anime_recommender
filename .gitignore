@@ -1,15 +1,15 @@
-# ========================
+# =========================
 # Entorno Virtual Python
-# ========================
+# =========================
 # Ignorar el directorio del entorno virtual
 venv/
 .venv/
 env/
 .env
 
-# ========================
+# =========================
 # Archivos de caché y compilados
-# ========================
+# =========================
 # Cachés de Python
 __pycache__/
 *.pyc
@@ -19,10 +19,10 @@ __pycache__/
 .idea/
 .vscode/
 
-# ========================
+# =========================
 # Archivos de Datos Generados
 # CRÍTICO: No subir datasets grandes, logs ni el input XML/JSON
-# ========================
+# =========================
 data/*.csv
 data/*.json
 data/*.log
@@ -31,9 +31,9 @@ data/*.xml
 # Archivos de respaldo temporales creados por los tests
 *_TEST_BACKUP
 
-# ========================
+# =========================
 # Logs y Artefactos del Modelo
-# ========================
+# =========================
 # Logs de ejecución (incluyendo recommender.log)
 *.log
 # Modelos de ML entrenados (si se guardan)
