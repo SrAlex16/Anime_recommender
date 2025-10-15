@@ -1,7 +1,7 @@
 
 # 🤖 Anime Recommender (Content-Based)
 
-Este proyecto implementa un sistema de recomendación de anime basado en contenido (Content-Based Filtering) utilizando datos del catálogo de AniList y la lista de visualización personal de un usuario (exportada vía MyAnimeList XML).
+Este proyecto implementa un sistema de recomendación de anime basado en contenido (**Content-Based Filtering**) utilizando datos del catálogo de **AniList** y la lista de visualización personal de un usuario (exportada vía Endopoint MyAnimeList JSON).
 
 El sistema analiza los géneros, temas y descripciones de los animes que el usuario ha visto y puntuado, y luego utiliza una matriz de similitud (TF-IDF y SVD) para sugerir títulos similares de alto score que el usuario aún no ha explorado.
 
@@ -36,10 +36,10 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 > [!Nota] 
-> El archivo `requirements.txt` contendrá librerías como pandas, numpy,          scikit-learn, etc.
+> El archivo `requirements.txt` contendrá librerías como pandas, numpy, scikit-learn, etc.
 
 4. **Configuración Inicial de Datos**
-El motor necesita un archivo XML de tu lista personal (AniList o MAL) para comenzar. Coloca tu archivo XML en el directorio raíz.
+   El usuario debe tener su lista de MAL pública para descargarla sin login e indicar su username en el programa cuando se lo pida.
 
 - **Usa tu XML:** Coloca animelist.xml en \anime_recommender\data.
 
