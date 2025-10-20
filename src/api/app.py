@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pandas as pd
 import numpy as np
@@ -55,6 +55,10 @@ class AnimeRecommender:
             tfidf_matrix = self.tfidf.fit_transform(self.anime_df['combined_features'])
             
             n_components = min(200, tfidf_matrix.shape[1] - 1)
+            if n_components <= 0:
+                print("❌ No hay suficientes componentes para SVD")
+                return False
+                
             svd = TruncatedSVD(n_components=n_components, random_state=42)
             latent_matrix = svd.fit_transform(tfidf_matrix)
             
@@ -67,6 +71,19 @@ class AnimeRecommender:
 
 # Instancia global del recomendador
 recommender = AnimeRecommender()
+
+def initialize_recommender():
+    """Función para inicializar el recomendador"""
+    print("🚀 Inicializando modelo de recomendación...")
+    if recommender.load_anime_data() and recommender.build_model():
+        print("✅ Modelo inicializado exitosamente")
+        return True
+    else:
+        print("❌ Error inicializando modelo")
+        return False
+
+# Inicializar el modelo inmediatamente
+is_initialized = initialize_recommender()
 
 def download_user_list(username):
     """Descargar lista de usuario desde MAL"""
@@ -84,6 +101,7 @@ def download_user_list(username):
             response = requests.get(url, headers={'User-Agent': 'MAL-API-App'})
             
             if response.status_code != 200:
+                print(f"❌ Error HTTP {response.status_code} al descargar lista")
                 return None
             
             data = response.json()
@@ -113,25 +131,32 @@ def get_recommendations_for_user(username, top_n=10):
         # 2. Procesar ratings del usuario
         user_ratings = []
         for item in user_list:
-            anime_id = item.get('anime_id')
-            score = int(str(item.get('score', 0))) if str(item.get('score', '0')).isdigit() else 0
-            status_id = item.get('status')
-            
-            if anime_id and score > 0:
-                user_ratings.append({
-                    'anime_id': anime_id,
-                    'user_score': score,
-                    'status': status_id
-                })
+            try:
+                anime_id = item.get('anime_id')
+                score_text = str(item.get('score', '0'))
+                score = int(score_text) if score_text.isdigit() else 0
+                
+                if anime_id and score > 0:
+                    user_ratings.append({
+                        'anime_id': anime_id,
+                        'user_score': score
+                    })
+            except Exception:
+                continue
         
         if not user_ratings:
             return None, "El usuario no tiene animes calificados"
+        
+        print(f"📊 Usuario tiene {len(user_ratings)} animes calificados")
         
         # 3. Fusionar con dataset principal
         user_df = pd.DataFrame(user_ratings)
         user_df['anime_id'] = pd.to_numeric(user_df['anime_id'], errors='coerce')
         
         # Asumiendo que tu dataset tiene columna 'MAL_ID' para hacer match
+        if 'MAL_ID' not in recommender.anime_df.columns:
+            return None, "El dataset no tiene columna MAL_ID"
+            
         df_merged = recommender.anime_df.merge(
             user_df, 
             left_on='MAL_ID', 
@@ -149,7 +174,7 @@ def get_recommendations_for_user(username, top_n=10):
         df_recommendations['hybrid_score'] = total_scores
         
         # Filtrar animes ya vistos
-        watched_ids = [item['anime_id'] for item in user_list]
+        watched_ids = [item['anime_id'] for item in user_list if 'anime_id' in item]
         df_recommendations = df_recommendations[~df_recommendations['MAL_ID'].isin(watched_ids)]
         
         # Filtrar por score mínimo y ordenar
@@ -169,7 +194,7 @@ def generate_statistics(user_list, recommendations):
         favorites_count = len([item for item in user_list if int(str(item.get('score', 0))) >= 8])
         
         return {
-            'total_animes_catalog': len(recommender.anime_df),
+            'total_animes_catalog': len(recommender.anime_df) if recommender.anime_df is not None else 0,
             'total_user_animes': len(user_list),
             'total_rated': total_rated,
             'favorites_count': favorites_count,
@@ -182,12 +207,32 @@ def generate_statistics(user_list, recommendations):
 # Rutas de la API
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+    return jsonify({
+        "status": "healthy", 
+        "model_loaded": is_initialized,
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    """Endpoint para verificar estado del modelo"""
+    return jsonify({
+        "model_loaded": is_initialized,
+        "anime_count": len(recommender.anime_df) if is_initialized else 0,
+        "timestamp": datetime.now().isoformat()
+    })
 
 @app.route('/api/recommendations/<username>', methods=['GET'])
 def get_recommendations(username):
     """Endpoint principal para obtener recomendaciones"""
     try:
+        # Verificar si el modelo está cargado
+        if not is_initialized:
+            return jsonify({
+                "status": "error",
+                "message": "El modelo no está cargado. Intenta nuevamente en unos segundos."
+            }), 503
+            
         start_time = time.time()
         
         # Validar username
@@ -198,6 +243,7 @@ def get_recommendations(username):
             }), 400
         
         username = username.strip()
+        print(f"🎯 Solicitando recomendaciones para: {username}")
         
         # Descargar lista para estadísticas
         user_list = download_user_list(username)
@@ -208,7 +254,7 @@ def get_recommendations(username):
             }), 404
         
         # Generar recomendaciones
-        recommendations, error = get_recommendations_for_user(username)
+        recommendations, error = get_recommendations_for_user(username, top_n=15)
         
         if error:
             return jsonify({
@@ -216,18 +262,34 @@ def get_recommendations(username):
                 "message": error
             }), 400
         
+        if recommendations is None or recommendations.empty:
+            return jsonify({
+                "status": "error",
+                "message": "No se pudieron generar recomendaciones para este usuario"
+            }), 400
+        
         # Preparar respuesta
         recommendations_list = []
         for _, row in recommendations.iterrows():
-            recommendations_list.append({
-                'id': int(row.get('MAL_ID', 0)),
-                'title': row.get('title', 'Título Desconocido'),
-                'score': float(row.get('score', 0)),
-                'type': row.get('type', 'N/A'),
-                'genres': row.get('genres', '').split() if isinstance(row.get('genres'), str) else [],
-                'description': row.get('description', '')[:200] + '...' if row.get('description') else '',
-                'hybrid_score': float(row.get('hybrid_score', 0))
-            })
+            try:
+                genres = row.get('genres', '')
+                if isinstance(genres, str):
+                    genres_list = genres.split()
+                else:
+                    genres_list = []
+                    
+                recommendations_list.append({
+                    'id': int(row.get('MAL_ID', 0)),
+                    'title': row.get('title', 'Título Desconocido'),
+                    'score': float(row.get('score', 0)),
+                    'type': row.get('type', 'N/A'),
+                    'genres': genres_list,
+                    'description': str(row.get('description', ''))[:200] + '...' if row.get('description') else '',
+                    'hybrid_score': float(row.get('hybrid_score', 0))
+                })
+            except Exception as e:
+                print(f"⚠️ Error procesando recomendación: {e}")
+                continue
         
         # Generar estadísticas
         stats = generate_statistics(user_list, recommendations)
@@ -241,39 +303,30 @@ def get_recommendations(username):
             "recommendations": recommendations_list
         }
         
+        print(f"✅ Recomendaciones generadas: {len(recommendations_list)} animes")
         return jsonify(response_data)
         
     except Exception as e:
+        print(f"❌ Error en endpoint: {e}")
         return jsonify({
             "status": "error",
             "message": f"Error interno del servidor: {str(e)}"
         }), 500
 
-@app.route('/api/status', methods=['GET'])
-def get_status():
-    """Endpoint para verificar estado del modelo"""
-    model_loaded = recommender.anime_df is not None and recommender.cosine_sim is not None
+@app.route('/')
+def home():
+    """Página de inicio"""
     return jsonify({
-        "model_loaded": model_loaded,
-        "anime_count": len(recommender.anime_df) if model_loaded else 0,
-        "timestamp": datetime.now().isoformat()
+        "message": "Anime Recommendation API",
+        "version": "1.0",
+        "endpoints": {
+            "health": "/api/health",
+            "status": "/api/status", 
+            "recommendations": "/api/recommendations/<username>"
+        }
     })
 
-# Inicializar modelo al arrancar
-@app.before_first_request
-def initialize_model():
-    print("🚀 Inicializando modelo de recomendación...")
-    if recommender.load_anime_data() and recommender.build_model():
-        print("✅ Modelo inicializado exitosamente")
-    else:
-        print("❌ Error inicializando modelo")
-
 if __name__ == '__main__':
-    # Inicializar modelo inmediatamente
-    if recommender.load_anime_data() and recommender.build_model():
-        print("✅ Modelo cargado exitosamente")
-    else:
-        print("❌ Error cargando modelo")
-    
     port = int(os.environ.get('PORT', 5000))
+    print(f"🚀 Iniciando servidor en puerto {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
