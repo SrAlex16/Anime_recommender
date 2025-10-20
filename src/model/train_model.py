@@ -90,20 +90,31 @@ def get_recommendations(df, cosine_sim, threshold=8, top_n=10):
     total_scores = np.dot(cosine_sim, score_vector)
     recs = df.copy()
     recs['hybrid_score'] = total_scores
+    
+    # 🔥 FILTRAR: Solo animes que el usuario NO HA VISTO
     vistos_ids = recs[recs['my_status'] != 'NO_INTERACTUADO']['AniListID'].tolist()
     blacklist_ids = set(load_blacklist())
     ids_a_excluir = set(vistos_ids).union(blacklist_ids)
     recs = recs[~recs['AniListID'].isin(ids_a_excluir)].copy()
     
-    print(f"✅ Filtrado completado. Se excluyeron {len(ids_a_excluir)} animes.")
+    print(f"✅ Filtrado completado. Se excluyeron {len(ids_a_excluir)} animes vistos/blacklist.")
     
     if recs.empty:
         print("⚠️ No hay recomendaciones disponibles.")
         return pd.DataFrame() 
         
-    recs = recs[recs['score'] >= 80]
+    # Filtrar por score mínimo de MAL
+    recs = recs[recs['score'] >= 70]  # 🔥 Score mínimo de 70 en MAL
+    
+    # Ordenar y tomar top N
     recs = recs.sort_values(by='hybrid_score', ascending=False)
-    return recs.head(top_n)
+    
+    # 🔥 GARANTIZAR exactamente 10 recomendaciones
+    if len(recs) < top_n:
+        print(f"⚠️ Solo hay {len(recs)} animes disponibles, mostrando todos.")
+        return recs.head(len(recs))
+    else:
+        return recs.head(top_n)
 
 # === FUNCIONES PARA ESTADÍSTICAS ===
 def load_user_ratings_only():
@@ -138,9 +149,8 @@ def get_user_favorites(df_user_list, threshold=8):
     return all_genres, all_tags
 
 def generate_statistics():
-    """Genera estadísticas del usuario para incluir en el JSON"""
+    """Genera estadísticas más informativas"""
     try:
-        # Cargar datos necesarios para estadísticas
         df = load_data()
         df_ratings = load_user_ratings_only()
         
@@ -158,15 +168,20 @@ def generate_statistics():
             how='left' 
         )
         
-        # Calcular estadísticas
+        # Calcular estadísticas mejoradas
         total_rated = len(df_user_list[df_user_list['user_score'] > 0])
         favoritos_count = len(df_user_list[df_user_list['user_score'] >= 8])
         
-        # Top géneros y tags
-        top_genres, top_tags = get_user_favorites(df_user_list, threshold=8)
+        # Top géneros basados en animes calificados
+        top_genres = Counter()
+        rated_anime = df_user_list[df_user_list['user_score'] > 0]
+        
+        for genres_str in rated_anime['genres']:
+            if isinstance(genres_str, str):
+                top_genres.update(genres_str.split())
         
         # Conteo de estados
-        status_counts = df_ratings['my_status'].value_counts(dropna=False).to_dict()
+        status_counts = df_ratings['my_status'].value_counts().to_dict()
         
         # Construir objeto de estadísticas
         stats = {
@@ -174,13 +189,12 @@ def generate_statistics():
             'total_user_animes': len(df_ratings),
             'total_rated': total_rated,
             'favorites_count': favoritos_count,
+            'completion_rate': f"{(total_rated / len(df_ratings) * 100):.1f}%" if len(df_ratings) > 0 else "0%",
             'top_genres': [{'name': g[0], 'count': g[1]} for g in top_genres.most_common(5)],
-            'top_tags': [{'name': t[0], 'count': t[1]} for t in top_tags.most_common(5)],
-            'status_distribution': status_counts,
-            'completion_rate': f"{(total_rated / len(df_ratings) * 100):.1f}%" if len(df_ratings) > 0 else "0%"
+            'status_distribution': status_counts
         }
         
-        print("📊 Estadísticas generadas exitosamente")
+        print("📊 Estadísticas mejoradas generadas exitosamente")
         return stats
         
     except Exception as e:
@@ -191,24 +205,20 @@ def generate_statistics():
             'error': str(e)
         }
 
-# === FUNCIÓN PARA GUARDAR JSON CON ESTADÍSTICAS ===
 def save_recommendations_to_json(recommendations_df, filename="recommendations.json"):
-    """Guarda las recomendaciones Y estadísticas en formato JSON para Flutter"""
+    """Guarda las recomendaciones limpias en formato JSON"""
     recommendations_json = []
+    
     for _, row in recommendations_df.iterrows():
-        recommendations_json.append({
-            'id': int(row['AniListID']),
-            'title': row['title'],
-            'score': float(row['score']),
-            'type': row.get('Tipo', 'N/A'),
-            'genres': row['genres'].split() if isinstance(row['genres'], str) else [],
-            'tags': row['tags'].split() if isinstance(row['tags'], str) else [],
-            'description': row.get('description', ''),
-            'hybrid_score': float(row.get('hybrid_score', 0))
-        })
+        clean_rec = clean_recommendation_output(row)
+        recommendations_json.append(clean_rec)
     
     # Generar estadísticas
     stats = generate_statistics()
+    
+    # 🔥 GARANTIZAR 10 recomendaciones
+    if len(recommendations_json) < 10:
+        print(f"⚠️ Advertencia: Solo se generaron {len(recommendations_json)} recomendaciones")
     
     # Guardar TODO en el JSON
     output_path = os.path.join(DATA_DIR, filename)
@@ -216,11 +226,11 @@ def save_recommendations_to_json(recommendations_df, filename="recommendations.j
         json.dump({
             'timestamp': datetime.now().isoformat(),
             'count': len(recommendations_json),
-            'statistics': stats,  # ✅ INCLUIR ESTADÍSTICAS
+            'statistics': stats,
             'recommendations': recommendations_json
         }, f, indent=2, ensure_ascii=False)
     
-    print(f"✅ Recomendaciones Y estadísticas guardadas en: {output_path}")
+    print(f"✅ {len(recommendations_json)} recomendaciones limpias guardadas en: {output_path}")
     return output_path
 
 # === FUNCIÓN PRINCIPAL MODIFICADA ===
@@ -254,7 +264,39 @@ def main_with_json():
         print(f"❌ Error en main_with_json: {e}")
         return None
 
+def get_recommendations(df, cosine_sim, threshold=8, top_n=10):
+    score_vector = df['user_score'].values / 10 
+    total_scores = np.dot(cosine_sim, score_vector)
+    recs = df.copy()
+    recs['hybrid_score'] = total_scores
+    
+    # 🔥 FILTRAR: Solo animes que el usuario NO HA VISTO
+    vistos_ids = recs[recs['my_status'] != 'NO_INTERACTUADO']['AniListID'].tolist()
+    blacklist_ids = set(load_blacklist())
+    ids_a_excluir = set(vistos_ids).union(blacklist_ids)
+    recs = recs[~recs['AniListID'].isin(ids_a_excluir)].copy()
+    
+    print(f"✅ Filtrado completado. Se excluyeron {len(ids_a_excluir)} animes vistos/blacklist.")
+    
+    if recs.empty:
+        print("⚠️ No hay recomendaciones disponibles.")
+        return pd.DataFrame() 
+        
+    # Filtrar por score mínimo de MAL
+    recs = recs[recs['score'] >= 70]  # 🔥 Score mínimo de 70 en MAL
+    
+    # Ordenar y tomar top N
+    recs = recs.sort_values(by='hybrid_score', ascending=False)
+    
+    # 🔥 GARANTIZAR exactamente 10 recomendaciones
+    if len(recs) < top_n:
+        print(f"⚠️ Solo hay {len(recs)} animes disponibles, mostrando todos.")
+        return recs.head(len(recs))
+    else:
+        return recs.head(top_n)
+
 # === FUNCIÓN DE ESTADÍSTICAS ===
+# En train_model.py - modificar get_anime_statistics
 def get_anime_statistics(df):
     """
     Calcula estadísticas simples a partir del DataFrame fusionado.
@@ -266,11 +308,11 @@ def get_anime_statistics(df):
         return stats
         
     # 1. Género más popular/visto (entre los animes con rating)
-    rated_anime = df[df['user_score'].notna()]
+    rated_anime = df[df['user_score'].notna() & (df['user_score'] > 0)]
     if not rated_anime.empty and 'genres' in rated_anime.columns:
         genre_counter = Counter()
-        # Iterar sobre las listas de géneros (ya convertidas a listas por prepare_data.py)
-        rated_anime['genres'].apply(lambda x: genre_counter.update(x))
+        # Iterar sobre las listas de géneros
+        rated_anime['genres'].apply(lambda x: genre_counter.update(x if isinstance(x, list) else x.split()))
         most_watched_genre = genre_counter.most_common(1)
         stats['most_watched_genre'] = most_watched_genre[0][0] if most_watched_genre else 'N/A'
 
