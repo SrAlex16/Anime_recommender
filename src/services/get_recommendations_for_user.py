@@ -1,4 +1,4 @@
-# src/model/get_recommendations_for_user.py
+# src/services/get_recommendations_for_user.py
 
 import os
 import sys
@@ -6,15 +6,20 @@ import json
 import subprocess
 from datetime import datetime
 
-# Añadir la ruta de src/data para los imports internos
-# Esto asegura que los scripts puedan importar cosas si las necesitas
-# SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-# sys.path.append(os.path.join(SCRIPT_DIR, '..', 'data'))
+# ----------------------------------------------------
+# 💡 CORRECCIÓN CRÍTICA PARA IMPORTACIONES EN SUBPROCESO
+# Objetivo: Añadir la carpeta 'src' al path.
+# Cálculo: Subir UN nivel (de 'services/' a 'src/').
+SRC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+sys.path.insert(0, SRC_DIR)
+# ----------------------------------------------------
 
 # Importar las funciones principales desde tus scripts
-from prepare_data import run_full_preparation_flow
-from train_model import load_data, preprocess_data, get_recommendations, get_anime_statistics, save_recommendations_to_json
-from download_mal_list import download_user_list # Necesario para iniciar
+# Ahora estas importaciones deberían funcionar, ya que 'src' está en el path.
+from data.prepare_data import run_full_preparation_flow
+from data.download_mal_list import download_user_list # Necesario para iniciar
+from model.train_model import load_data, preprocess_data, get_recommendations, get_anime_statistics 
+
 
 def get_recommendations_service(username):
     """
@@ -22,14 +27,14 @@ def get_recommendations_service(username):
     1. Descarga la lista del usuario.
     2. Prepara el dataset (corre fetch, parse, merge).
     3. Entrena el modelo y genera recomendaciones.
-    4. Imprime el JSON a stdout para que Flutter lo capture.
+    4. Imprime el JSON a stdout para que el subprocess lo capture.
     """
+    # ROOT_DIR y DATA_DIR no son estrictamente necesarios para la lógica interna, 
+    # pero los mantendremos si los usas para alguna función de ruta.
     ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     DATA_DIR = os.path.join(ROOT_DIR, "data")
     
     # 1. DESCARGA LA LISTA DEL USUARIO
-    # NOTA: download_user_list necesita el nombre de usuario.
-    # Asumimos que lo guardará en data/user_mal_list.json
     if not download_user_list(username):
         return json.dumps({
             'status': 'error',
@@ -37,10 +42,8 @@ def get_recommendations_service(username):
             'timestamp': datetime.now().isoformat()
         })
     
-    # 2. PREPARA EL DATASET COMPLETO (Esto incluye la descarga de AniList si es necesario)
+    # 2. PREPARA EL DATASET COMPLETO
     try:
-        # Asumimos que run_full_preparation_flow maneja la ejecución de fetch_datasets y parse_xml
-        # ⚠️ Necesitas adaptar tu prepare_data.py para exponer esta función
         run_full_preparation_flow(username) 
     except subprocess.CalledProcessError as e:
         return json.dumps({
@@ -71,7 +74,7 @@ def get_recommendations_service(username):
         
         recommendations_json = json.loads(recs.to_json(orient='records'))
 
-        # Crear el JSON final que se devolverá a Flutter
+        # Crear el JSON final
         output_data = {
             'status': 'success',
             'timestamp': datetime.now().isoformat(),
@@ -80,7 +83,6 @@ def get_recommendations_service(username):
             'recommendations': recommendations_json
         }
         
-        # ⚠️ IMPORTANTE: Devolver el JSON directamente al stdout
         return json.dumps(output_data, ensure_ascii=False)
         
     except Exception as e:
@@ -102,12 +104,6 @@ if __name__ == "__main__":
         print(json_output)
         
     else:
-        # Si se ejecuta sin argumentos (como el caso de tu error de inicio),
-        # simplemente imprime un error y no ejecuta la lógica pesada.
-        # No deberías ver esto en Render si la aplicación inicia bien.
-        sys.stderr.write(json.dumps({
-            'status': 'error', 
-            'message': 'Error: Nombre de usuario no proporcionado como argumento.',
-            'timestamp': datetime.now().isoformat()
-        }))
-        sys.exit(1)
+        # ⚠️ Solución al error de inicio de Gunicorn: salir sin ejecutar código pesado
+        # Ya que no hay argumentos (nombre de usuario), no se ejecuta la lógica.
+        sys.exit(0)
