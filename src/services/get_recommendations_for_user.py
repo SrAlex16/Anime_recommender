@@ -94,10 +94,20 @@ if __name__ == "__main__":
     # Lee el nombre de usuario del argumento de la línea de comandos
     if len(sys.argv) > 1:
         username = sys.argv[1]
-    else:
-        # Esto solo es para pruebas locales, Chaquopy siempre envía el argumento
-        username = "alex_mal_user" # Usuario por defecto
         
-    json_output = get_recommendations_service(username)
-    # Imprime el JSON que Chaquopy/Native capturará
-    print(json_output)
+        # Llama al servicio SOLO si se proporciona un nombre de usuario como argumento
+        json_output = get_recommendations_service(username)
+        
+        # Imprime el JSON que el subprocess capturará en app.py
+        print(json_output)
+        
+    else:
+        # Si se ejecuta sin argumentos (como el caso de tu error de inicio),
+        # simplemente imprime un error y no ejecuta la lógica pesada.
+        # No deberías ver esto en Render si la aplicación inicia bien.
+        sys.stderr.write(json.dumps({
+            'status': 'error', 
+            'message': 'Error: Nombre de usuario no proporcionado como argumento.',
+            'timestamp': datetime.now().isoformat()
+        }))
+        sys.exit(1)
