@@ -21,14 +21,14 @@ def run_pipeline(username):
     try:
         print(f"🚀 Iniciando pipeline para usuario: {username}")
         
-        # ⚠️ REINSERTAR ESTA LÍNEA ⚠️
-        # La ruta al script principal, ahora en la carpeta 'services'
+        # ⚠️ ESTA LÍNEA DEBE SER REINSERTADA Y CORREGIDA ⚠️
+        # Usa 'services' en lugar de 'model'
         script_path = os.path.join(ROOT_DIR, 'src', 'services', 'get_recommendations_for_user.py')
         
         # Ejecutar el script con el username como argumento
         result = subprocess.run([
             sys.executable, script_path, username
-        ], capture_output=True, text=True, cwd=ROOT_DIR, timeout=300)  # 5 minutos timeout
+        ], capture_output=True, text=True, cwd=ROOT_DIR, timeout=300) # 5 minutos timeout
         
         print(f"📋 Script ejecutado. Return code: {result.returncode}")
         
