@@ -166,5 +166,28 @@ def main():
     df_final.to_csv(FINAL_DATA_PATH, index=False, encoding='utf-8')
     print(f"✅ Dataset final guardado: {os.path.abspath(FINAL_DATA_PATH)} ({len(df_final)} filas).")
 
+# === FUNCION DE ORQUESTACION PARA EL PIPELINE ===
+def run_full_preparation_flow(username):
+    """
+    Ejecuta todos los pasos de preparación y limpieza de datos.
+    Esta función es llamada por el servicio de recomendación.
+    """
+    print("🛠️ Iniciando el flujo completo de preparación de datos...")
+    
+    # 1. Asegurarse de que el dataset de AniList exista (fetch_datasets.py)
+    # Ejecuta el script de fetch datasets si falta o está obsoleto
+    run_script_if_missing(MERGED_ANIME_PATH, FETCH_SCRIPT_PATH)
+    
+    # 2. Parsear el archivo de ratings del usuario (parse_xml.py)
+    # Este archivo se generó antes por download_mal_list.py, ahora se parsea
+    run_script_if_missing(USER_RATINGS_PATH, PARSE_SCRIPT_PATH)
+    
+    # 3. Fusionar y limpiar los datos finales
+    # Esta función debería crear FINAL_DATA_PATH
+    merge_and_clean_data()
+    
+    print("🎉 Flujo de preparación de datos completado.")
+    return True
+
 if __name__ == "__main__":
     main()
