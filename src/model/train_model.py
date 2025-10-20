@@ -254,5 +254,37 @@ def main_with_json():
         print(f"❌ Error en main_with_json: {e}")
         return None
 
+# === FUNCIÓN DE ESTADÍSTICAS ===
+def get_anime_statistics(df):
+    """
+    Calcula estadísticas simples a partir del DataFrame fusionado.
+    """
+    stats = {}
+    
+    # Asegurarse de que el DataFrame no esté vacío
+    if df.empty:
+        return stats
+        
+    # 1. Género más popular/visto (entre los animes con rating)
+    rated_anime = df[df['user_score'].notna()]
+    if not rated_anime.empty and 'genres' in rated_anime.columns:
+        genre_counter = Counter()
+        # Iterar sobre las listas de géneros (ya convertidas a listas por prepare_data.py)
+        rated_anime['genres'].apply(lambda x: genre_counter.update(x))
+        most_watched_genre = genre_counter.most_common(1)
+        stats['most_watched_genre'] = most_watched_genre[0][0] if most_watched_genre else 'N/A'
+
+    # 2. Puntuación promedio del usuario (solo animes calificados)
+    if 'user_score' in df.columns:
+        avg_score = rated_anime['user_score'].mean()
+        stats['average_user_score'] = round(avg_score, 2) if pd.notna(avg_score) else 0.0
+
+    # 3. Total de animes en la lista del usuario (vistos/plan to watch)
+    if 'my_status' in df.columns:
+        total_in_list = df['my_status'].count()
+        stats['total_anime_in_list'] = int(total_in_list)
+
+    return stats
+
 if __name__ == "__main__":
     main_with_json()
