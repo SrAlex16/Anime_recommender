@@ -139,16 +139,13 @@ def merge_and_clean_data():
 def run_full_preparation_flow(username):
     """
     Ejecuta todos los pasos de preparación y limpieza de datos en orden.
-    (El username se pasa para consistencia, aunque la lista ya está descargada).
     """
     print("🛠️ Iniciando el flujo completo de preparación de datos...")
     
     # 1. Asegurarse de que el dataset de anime base exista (fetch_datasets.py)
-    # Esto usa subprocess.run, que manejará sus propios errores.
     run_script_if_missing(MERGED_ANIME_PATH, FETCH_SCRIPT_PATH)
     
     # 2. Asegurarse de que los ratings del usuario estén parseados (parse_xml.py)
-    # El archivo de entrada de parse_xml.py (user_mal_list.json) fue creado previamente por el servicio.
     run_script_if_missing(USER_RATINGS_PATH, PARSE_SCRIPT_PATH)
     
     # 3. Fusionar y limpiar los datos finales

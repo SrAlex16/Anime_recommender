@@ -1,20 +1,23 @@
-# src/services/get_recommendations_for_user.py
-
-import os
 import sys
 import json
 import subprocess
 from datetime import datetime
+import os
 
-# ----------------------------------------------------
-# 💡 CORRECCIÓN CRÍTICA PARA IMPORTACIONES EN SUBPROCESO
-# Subir de 'services/' a 'src/'.
+# 💡 CORRECCIÓN INFALIBLE DE RUTA:
+# Añade el directorio 'src/' al path. (Sube UN nivel de 'services' a 'src').
+# Esto permite importar directamente los archivos, sin la notación de paquete (data. o model.).
 SRC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, SRC_DIR)
-# ----------------------------------------------------
 
-# Importar las funciones principales desde tus scripts
-# ⚠️ CAMBIA ESTAS LÍNEAS PARA INCLUIR EL NOMBRE DEL DIRECTORIO (PAQUETE)
+# Importar las funciones principales directamente (ya que 'src' es ahora la raíz de los módulos)
+# El archivo prepare_data.py está en src/data/, pero la función está definida en el archivo.
+# Sin embargo, dado que no usas __init__.py, la importación debe ser desde el nombre del archivo.
+
+# La ruta está mal en este punto: prepare_data.py no está en 'src/'.
+# Pero sí puedes importar los scripts que están dentro de carpetas.
+
+# Corregido a:
 from data.prepare_data import run_full_preparation_flow
 from data.download_mal_list import download_user_list 
 from model.train_model import load_data, preprocess_data, get_recommendations, get_anime_statistics
