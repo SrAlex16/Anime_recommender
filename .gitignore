@@ -23,7 +23,8 @@ __pycache__/
 # Archivos de Datos Generados
 # CRÍTICO: No subir datasets grandes, logs ni el input XML/JSON
 # =========================
-data/*.csv
+data/final_dataset.csv
+data/user_ratings.csv
 data/*.json
 data/*.log
 data/*.xml
