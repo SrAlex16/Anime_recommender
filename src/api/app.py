@@ -22,7 +22,7 @@ def run_pipeline(username):
         print(f"🚀 Iniciando pipeline para usuario: {username}")
         
         # Ruta al script principal
-        script_path = os.path.join(ROOT_DIR, 'src', 'model', 'get_recommendations_for_user.py')
+        os.path.join(ROOT_DIR, 'src', 'services', 'get_recommendations_for_user.py')
         
         # Ejecutar el script con el username como argumento
         result = subprocess.run([
