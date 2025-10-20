@@ -4,23 +4,35 @@ import subprocess
 from datetime import datetime
 import os
 
-# 💡 CORRECCIÓN INFALIBLE DE RUTA:
-# Añade el directorio 'src/' al path. (Sube UN nivel de 'services' a 'src').
-# Esto permite importar directamente los archivos, sin la notación de paquete (data. o model.).
+import os
+import sys
+import json
+import subprocess
+from datetime import datetime
+
+# --- CORRECCIÓN CRÍTICA DE RUTAS ---
+# 1. Asegurar que la carpeta 'src' esté en el path
 SRC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-sys.path.insert(0, SRC_DIR)
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
 
-# Importar las funciones principales directamente (ya que 'src' es ahora la raíz de los módulos)
-# El archivo prepare_data.py está en src/data/, pero la función está definida en el archivo.
-# Sin embargo, dado que no usas __init__.py, la importación debe ser desde el nombre del archivo.
+# 2. Asegurar que las carpetas de módulos estén en el path
+# Esto es necesario porque el subproceso se ejecuta desde la raíz del proyecto (ROOT_DIR)
+# y debe encontrar los scripts dentro de 'src/data' y 'src/model'
 
-# La ruta está mal en este punto: prepare_data.py no está en 'src/'.
-# Pero sí puedes importar los scripts que están dentro de carpetas.
+DATA_DIR_FOR_IMPORT = os.path.join(SRC_DIR, 'data')
+MODEL_DIR_FOR_IMPORT = os.path.join(SRC_DIR, 'model')
 
-# Corregido a:
+if DATA_DIR_FOR_IMPORT not in sys.path:
+    sys.path.insert(0, DATA_DIR_FOR_IMPORT)
+if MODEL_DIR_FOR_IMPORT not in sys.path:
+    sys.path.insert(0, MODEL_DIR_FOR_IMPORT)
+
+# --- IMPORTACIONES CORREGIDAS ---
+# Ahora, las importaciones directas funcionarán porque el directorio del módulo está en sys.path
 from data.prepare_data import run_full_preparation_flow
-from data.download_mal_list import download_user_list 
 from model.train_model import load_data, preprocess_data, get_recommendations, get_anime_statistics
+from data.download_mal_list import download_user_list
 
 def get_recommendations_service(username):
     """
