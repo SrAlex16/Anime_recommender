@@ -1,4 +1,4 @@
-# src/model/train_model.py - VERSIÓN COMPLETA CORREGIDA
+# src/model/train_model.py - VERSIÓN COMPLETA CON TODAS LAS FUNCIONES
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import linear_kernel
@@ -38,6 +38,59 @@ def load_blacklist():
             return [int(id) for id in data if str(id).isdigit()]
     except Exception:
         return []
+
+def get_user_anime_ids_from_source():
+    """Obtiene los IDs de anime directamente del JSON original del usuario"""
+    try:
+        user_json_path = os.path.join(DATA_DIR, "user_mal_list.json")
+        
+        if not os.path.exists(user_json_path):
+            debug_log("❌ user_mal_list.json no encontrado")
+            return set()
+        
+        with open(user_json_path, 'r', encoding='utf-8') as f:
+            user_data = json.load(f)
+        
+        # Extraer todos los anime_id del JSON
+        user_anime_ids = set()
+        for item in user_data:
+            anime_id = item.get('anime_id')
+            if anime_id is not None:
+                user_anime_ids.add(int(anime_id))
+        
+        debug_log(f"📊 user_mal_list.json contiene {len(user_anime_ids)} animes únicos")
+        
+        # 🔥 DEBUG: Mostrar algunos ejemplos del JSON
+        debug_log("🔍 Ejemplos del JSON original:")
+        for i, item in enumerate(user_data[:3]):
+            debug_log(f"   📝 Anime {i+1}: ID={item.get('anime_id')}, Title='{item.get('anime_title')}', Status={item.get('status')}")
+        
+        return user_anime_ids
+        
+    except Exception as e:
+        debug_log(f"❌ Error leyendo user_mal_list.json: {e}")
+        return set()
+
+def debug_user_animes(df):
+    """Debug: Ver qué animes tiene el usuario desde la fuente directa"""
+    user_anime_ids = get_user_anime_ids_from_source()
+    
+    debug_log(f"📊 USER ANIME LIST DEBUG (desde JSON):")
+    debug_log(f"Total animes en lista: {len(user_anime_ids)}")
+    
+    # Mostrar algunos ejemplos con títulos
+    debug_log("🔍 Ejemplos de animes en lista del usuario:")
+    sample_ids = list(user_anime_ids)[:8]
+    for anime_id in sample_ids:
+        anime_info = df[df['id'] == anime_id]
+        if not anime_info.empty:
+            title = anime_info.iloc[0]['title']
+            status = anime_info.iloc[0]['my_status'] if 'my_status' in anime_info.columns else 'Unknown'
+            debug_log(f"   📺 {title} (ID: {anime_id}) - Estado: {status}")
+        else:
+            debug_log(f"   ❓ Anime ID {anime_id} no encontrado en dataset")
+    
+    return user_anime_ids
 
 def load_data():
     if not os.path.exists(FINAL_DATASET_PATH) or os.path.getsize(FINAL_DATASET_PATH) <= 100:
@@ -106,54 +159,28 @@ def preprocess_data(df):
         debug_log(f"❌ Traceback: {traceback.format_exc()}")
         return None
 
-def debug_data_types(df, cosine_sim):
-    """Debug: Verificar tipos de datos y dimensiones"""
-    debug_log("🔍 DEBUG DATA TYPES:")
-    debug_log(f"DataFrame shape: {df.shape}")
-    debug_log(f"Cosine sim shape: {cosine_sim.shape}")
-    debug_log(f"Cosine sim type: {type(cosine_sim)}")
-    
-    # Verificar columnas críticas
-    critical_columns = ['user_score', 'AniListID', 'my_status', 'score', 'id']
-    for col in critical_columns:
-        if col in df.columns:
-            debug_log(f"Column '{col}': dtype={df[col].dtype}, sample values: {df[col].head(3).tolist()}")
-        else:
-            debug_log(f"❌ Column '{col}' not found in DataFrame")
-
-def debug_user_animes(df):
-    """Debug: Ver qué animes tiene el usuario en su lista"""
-    user_animes = df[df['my_status'] != 'NO_INTERACTUADO'][['id', 'title', 'my_status', 'user_score']]
-    
-    debug_log(f"📊 USER ANIME LIST DEBUG:")
-    debug_log(f"Total animes en lista: {len(user_animes)}")
-    
-    # Contar por estado
-    status_counts = user_animes['my_status'].value_counts()
-    for status, count in status_counts.items():
-        debug_log(f"  {status}: {count} animes")
-    
-    # Mostrar algunos ejemplos
-    sample_animes = user_animes.head(5)
-    for _, anime in sample_animes.iterrows():
-        debug_log(f"  📺 {anime['title']} - {anime['my_status']} (Score: {anime['user_score']})")
-    
-    return user_animes
-
 def get_recommendations(df, cosine_sim, top_n=10):
-    """Función CORREGIDA - Recomendaciones con filtrado robusto"""
+    """Función CORREGIDA - Compara directamente con user_mal_list.json"""
     try:
         debug_log("🎯 Calculando recomendaciones...")
         
-        # 🔥 DEBUG: Verificar datos del usuario
-        debug_user_animes(df)
-        debug_data_types(df, cosine_sim)
+        # 🔥 OBTENER IDs DIRECTAMENTE DEL JSON ORIGINAL
+        user_anime_ids_from_json = get_user_anime_ids_from_source()
         
-        # 🔥 CORRECCIÓN CRÍTICA: Asegurar que los datos sean numéricos
-        df['user_score'] = pd.to_numeric(df['user_score'], errors='coerce').fillna(0)
-        df['score'] = pd.to_numeric(df['score'], errors='coerce').fillna(0)
-        df['AniListID'] = pd.to_numeric(df['AniListID'], errors='coerce')
-        df['id'] = pd.to_numeric(df['id'], errors='coerce')
+        if not user_anime_ids_from_json:
+            debug_log("❌ No se pudieron obtener IDs del usuario desde el JSON")
+            return pd.DataFrame()
+        
+        debug_log(f"🛑 EXCLUYENDO {len(user_anime_ids_from_json)} animes del usuario (directo del JSON)")
+        
+        # 🔥 VERIFICACIÓN: Mostrar algunos animes que se excluirán
+        debug_log("📋 Ejemplos de animes a excluir:")
+        sample_excluded = list(user_anime_ids_from_json)[:5]
+        for anime_id in sample_excluded:
+            anime_info = df[df['id'] == anime_id]
+            if not anime_info.empty:
+                title = anime_info.iloc[0]['title']
+                debug_log(f"   🚫 {title} (ID: {anime_id})")
         
         # Calcular scores híbridos
         score_vector = df['user_score'].values.astype(float) / 10.0
@@ -163,7 +190,6 @@ def get_recommendations(df, cosine_sim, top_n=10):
             debug_log(f"⚠️ Ajustando dimensiones: score_vector {score_vector.shape} vs cosine_sim {cosine_sim.shape}")
             min_dim = min(score_vector.shape[0], cosine_sim.shape[1])
             score_vector = score_vector[:min_dim]
-            # Tomar submatriz cuadrada de cosine_sim
             cosine_sim = cosine_sim[:min_dim, :min_dim]
         
         # Calcular puntuaciones híbridas
@@ -172,24 +198,8 @@ def get_recommendations(df, cosine_sim, top_n=10):
         recs = df.copy()
         recs['hybrid_score'] = total_scores
         
-        # 🔥 CRÍTICO: Filtrar TODOS los animes que ya están en la lista del usuario
-        estados_excluir = ['Watching', 'Completed', 'On-Hold', 'Dropped', 'Plan to Watch', 'PTW']
-        
-        # Asegurar que my_status es string
-        recs['my_status'] = recs['my_status'].astype(str)
-        
-        # Obtener IDs de animes que ya están en la lista del usuario
-        mask_lista = recs['my_status'].isin(estados_excluir)
-        animes_en_lista_ids = recs[mask_lista]['AniListID'].tolist()
-        blacklist_ids = set(load_blacklist())
-        
-        # Combinar exclusiones
-        ids_a_excluir = set(animes_en_lista_ids).union(blacklist_ids)
-        
-        debug_log(f"🛑 Excluyendo {len(ids_a_excluir)} animes: {len(animes_en_lista_ids)} en lista + {len(blacklist_ids)} en blacklist")
-        
-        # Aplicar filtro
-        recs = recs[~recs['AniListID'].isin(ids_a_excluir)].copy()
+        # 🔥 FILTRADO DIRECTO: Excluir cualquier anime que esté en el JSON del usuario
+        recs = recs[~recs['id'].isin(user_anime_ids_from_json)].copy()
         
         debug_log(f"✅ Filtrado completado. Animes disponibles: {len(recs)}")
         
@@ -213,20 +223,29 @@ def get_recommendations(df, cosine_sim, top_n=10):
         
         result = recs[available_columns].head(top_n)
         
-        # 🔥 VERIFICACIÓN EXTRA: Asegurar que no se recomienden animes de la lista
+        # 🔥 VERIFICACIÓN EXTREMA: Asegurar que no se recomienden animes de la lista
         if not result.empty:
-            result_ids = result['id'].tolist()
-            conflictos = set(result_ids).intersection(ids_a_excluir)
-            if conflictos:
-                debug_log(f"❌ ERROR: {len(conflictos)} animes de la lista fueron recomendados")
-                # Log detallado
-                conflict_animes = df[df['id'].isin(conflictos)][['id', 'title', 'my_status']]
-                for _, anime in conflict_animes.iterrows():
-                    debug_log(f"   🚫 {anime['title']} - Estado: {anime['my_status']}")
+            result_ids = set(result['id'].tolist())
+            conflicts = result_ids.intersection(user_anime_ids_from_json)
+            
+            if conflicts:
+                debug_log(f"❌ ERROR CRÍTICO: {len(conflicts)} animes del usuario fueron recomendados")
+                for conflict_id in conflicts:
+                    conflict_anime = df[df['id'] == conflict_id]
+                    if not conflict_anime.empty:
+                        title = conflict_anime.iloc[0]['title']
+                        debug_log(f"   🚫 CONFLICTO: {title} (ID: {conflict_id})")
+                return pd.DataFrame()  # 🔥 NO devolver recomendaciones con conflictos
             else:
-                debug_log("✅ VERIFICACIÓN: Ningún anime de la lista fue recomendado")
+                debug_log("✅ VERIFICACIÓN EXITOSA: Ningún anime del usuario fue recomendado")
         
         debug_log(f"✅ {len(result)} recomendaciones generadas exitosamente")
+        
+        # 🔥 DEBUG FINAL: Mostrar las recomendaciones
+        debug_log("🎯 RECOMENDACIONES FINALES:")
+        for _, anime in result.iterrows():
+            debug_log(f"   ✅ {anime['title']} (ID: {anime['id']}) - Score: {anime['score']}")
+        
         return result
         
     except Exception as e:
@@ -264,9 +283,8 @@ def get_anime_statistics(df):
             stats['average_user_score'] = round(avg_score, 2) if pd.notna(avg_score) else 0.0
 
         # Total de animes en la lista del usuario
-        if 'my_status' in df.columns:
-            user_animes = df[df['my_status'].isin(['Watching', 'Completed', 'On-Hold', 'Dropped', 'Plan to Watch', 'PTW'])]
-            stats['total_anime_in_list'] = len(user_animes)
+        user_anime_ids = get_user_anime_ids_from_source()
+        stats['total_anime_in_list'] = len(user_anime_ids)
             
         debug_log(f"📊 Estadísticas generadas: {stats}")
         
