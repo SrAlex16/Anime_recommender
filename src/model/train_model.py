@@ -160,94 +160,68 @@ def preprocess_data(df):
         return None
 
 def get_recommendations(df, cosine_sim, top_n=10):
-    """Función CORREGIDA - Compara directamente con user_mal_list.json"""
+    """Función CORREGIDA: recomienda animes excluyendo los que el usuario ya vio (por MAL_ID)"""
     try:
         debug_log("🎯 Calculando recomendaciones...")
-        
-        # 🔥 OBTENER IDs DIRECTAMENTE DEL JSON ORIGINAL
+
+        # 🔥 Obtener IDs del usuario directamente del JSON
         user_anime_ids_from_json = get_user_anime_ids_from_source()
-        
         if not user_anime_ids_from_json:
             debug_log("❌ No se pudieron obtener IDs del usuario desde el JSON")
             return pd.DataFrame()
-        
-        debug_log(f"🛑 EXCLUYENDO {len(user_anime_ids_from_json)} animes del usuario (directo del JSON)")
-        
-        # 🔥 VERIFICACIÓN: Mostrar algunos animes que se excluirán
-        debug_log("📋 Ejemplos de animes a excluir:")
-        sample_excluded = list(user_anime_ids_from_json)[:5]
-        for anime_id in sample_excluded:
-            anime_info = df[df['id'] == anime_id]
-            if not anime_info.empty:
-                title = anime_info.iloc[0]['title']
-                debug_log(f"   🚫 {title} (ID: {anime_id})")
-        
+
+        debug_log(f"🛑 Excluyendo {len(user_anime_ids_from_json)} animes del usuario (por MAL_ID)")
+
+        # 🔥 Asegurar que la columna MAL_ID sea int
+        df['MAL_ID'] = df['MAL_ID'].fillna(0).astype(int)
+
         # Calcular scores híbridos
         score_vector = df['user_score'].values.astype(float) / 10.0
-        
-        # 🔥 VERIFICAR DIMENSIONES
+
+        # Ajustar dimensiones si es necesario
         if score_vector.shape[0] != cosine_sim.shape[1]:
             debug_log(f"⚠️ Ajustando dimensiones: score_vector {score_vector.shape} vs cosine_sim {cosine_sim.shape}")
             min_dim = min(score_vector.shape[0], cosine_sim.shape[1])
             score_vector = score_vector[:min_dim]
             cosine_sim = cosine_sim[:min_dim, :min_dim]
-        
+
         # Calcular puntuaciones híbridas
         total_scores = np.dot(cosine_sim, score_vector)
-        
         recs = df.copy()
         recs['hybrid_score'] = total_scores
-        
-        # 🔥 FILTRADO DIRECTO: Excluir cualquier anime que esté en el JSON del usuario
-        recs = recs[~recs['id'].isin(user_anime_ids_from_json)].copy()
-        
+
+        # 🔥 FILTRADO: excluir animes ya vistos (MAL_ID)
+        recs = recs[~recs['MAL_ID'].isin(user_anime_ids_from_json)].copy()
         debug_log(f"✅ Filtrado completado. Animes disponibles: {len(recs)}")
-        
+
         if recs.empty:
             debug_log("⚠️ No hay recomendaciones disponibles después del filtrado.")
-            return pd.DataFrame() 
-            
+            return pd.DataFrame()
+
         # Filtrar por score mínimo de MAL
         recs = recs[recs['score'] >= 70]
-        
         if recs.empty:
             debug_log("⚠️ No hay animes con score >= 70")
             return pd.DataFrame()
-        
+
         # Ordenar por score híbrido y tomar top N
-        recs = recs.sort_values(by='hybrid_score', ascending=False)
-        
-        # Seleccionar columnas de salida
-        output_columns = ['id', 'MAL_ID', 'title', 'score', 'genres', 'description', 'type', 'episodes', 'siteUrl', 'studios']
-        available_columns = [col for col in output_columns if col in recs.columns]
-        
-        result = recs[available_columns].head(top_n)
-        
-        # 🔥 VERIFICACIÓN EXTREMA: Asegurar que no se recomienden animes de la lista
-        if not result.empty:
-            result_ids = set(result['id'].tolist())
-            conflicts = result_ids.intersection(user_anime_ids_from_json)
-            
-            if conflicts:
-                debug_log(f"❌ ERROR CRÍTICO: {len(conflicts)} animes del usuario fueron recomendados")
-                for conflict_id in conflicts:
-                    conflict_anime = df[df['id'] == conflict_id]
-                    if not conflict_anime.empty:
-                        title = conflict_anime.iloc[0]['title']
-                        debug_log(f"   🚫 CONFLICTO: {title} (ID: {conflict_id})")
-                return pd.DataFrame()  # 🔥 NO devolver recomendaciones con conflictos
-            else:
-                debug_log("✅ VERIFICACIÓN EXITOSA: Ningún anime del usuario fue recomendado")
-        
-        debug_log(f"✅ {len(result)} recomendaciones generadas exitosamente")
-        
-        # 🔥 DEBUG FINAL: Mostrar las recomendaciones
+        recs = recs.sort_values(by='hybrid_score', ascending=False).head(top_n)
+
+        # 🔥 VERIFICACIÓN FINAL: asegurar que no se recomienden animes del usuario
+        conflicts = recs[recs['MAL_ID'].isin(user_anime_ids_from_json)]
+        if not conflicts.empty:
+            debug_log(f"❌ ERROR CRÍTICO: {len(conflicts)} animes del usuario fueron recomendados")
+            for _, row in conflicts.iterrows():
+                debug_log(f"   🚫 CONFLICTO: {row['title']} (MAL_ID: {row['MAL_ID']})")
+            return pd.DataFrame()
+
+        debug_log(f"✅ {len(recs)} recomendaciones generadas exitosamente")
         debug_log("🎯 RECOMENDACIONES FINALES:")
-        for _, anime in result.iterrows():
-            debug_log(f"   ✅ {anime['title']} (ID: {anime['id']}) - Score: {anime['score']}")
-        
-        return result
-        
+        for _, anime in recs.iterrows():
+            debug_log(f"   ✅ {anime['title']} (MAL_ID: {anime['MAL_ID']}) - Score: {anime['score']}")
+
+        return recs
+
     except Exception as e:
         debug_log(f"❌ Error en get_recommendations: {e}")
         debug_log(f"❌ Traceback: {traceback.format_exc()}")
@@ -295,14 +269,17 @@ def get_anime_statistics(df):
     return stats
 
 def save_recommendations_to_json(recommendations_df, filename="recommendations.json"):
-    """Guarda las recomendaciones en formato JSON"""
+    """Guarda las recomendaciones en formato JSON, usando MAL_ID de forma consistente"""
     try:
         if recommendations_df.empty:
             debug_log("⚠️ No hay recomendaciones para guardar")
             return None
-            
+
+        # 🔥 Validar que MAL_ID exista y sea int
+        recommendations_df['MAL_ID'] = recommendations_df['MAL_ID'].fillna(0).astype(int)
+
         recommendations_json = []
-        
+
         for _, row in recommendations_df.iterrows():
             clean_rec = {
                 'id': int(row['id']) if 'id' in row and pd.notna(row['id']) else 0,
@@ -317,10 +294,11 @@ def save_recommendations_to_json(recommendations_df, filename="recommendations.j
                 'studios': str(row['studios']) if 'studios' in row and pd.notna(row['studios']) else ''
             }
             recommendations_json.append(clean_rec)
-        
+
         # Generar estadísticas
         stats = generate_statistics()
-        
+
+        # Guardar JSON final
         output_path = os.path.join(DATA_DIR, filename)
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump({
@@ -329,13 +307,23 @@ def save_recommendations_to_json(recommendations_df, filename="recommendations.j
                 'statistics': stats,
                 'recommendations': recommendations_json
             }, f, indent=2, ensure_ascii=False)
-        
+
         debug_log(f"✅ {len(recommendations_json)} recomendaciones guardadas en: {output_path}")
+
+        # 🔥 Verificación final: asegurar que no se guarden animes ya vistos
+        user_anime_ids = get_user_anime_ids_from_source()
+        conflicts = [rec for rec in recommendations_json if rec['MAL_ID'] in user_anime_ids]
+        if conflicts:
+            debug_log(f"❌ ALERTA: Se están guardando {len(conflicts)} animes ya vistos: {[c['title'] for c in conflicts]}")
+            return None
+
         return output_path
-        
+
     except Exception as e:
         debug_log(f"❌ Error guardando recomendaciones: {e}")
+        debug_log(f"❌ Traceback: {traceback.format_exc()}")
         return None
+
 
 def generate_statistics():
     """Genera estadísticas del sistema (función de respaldo)"""
