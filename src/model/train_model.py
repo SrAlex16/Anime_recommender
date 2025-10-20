@@ -85,36 +85,48 @@ def preprocess_data(df):
     print(f"✅ Similitud coseno calculada: {cosine_sim.shape}")
     return cosine_sim
 
-def get_recommendations(df, cosine_sim, threshold=8, top_n=10):
-    score_vector = df['user_score'].values / 10 
-    total_scores = np.dot(cosine_sim, score_vector)
-    recs = df.copy()
-    recs['hybrid_score'] = total_scores
+import pandas as pd # Asegúrate de que pandas está importado arriba
+
+def get_recommendations(df, df_processed, top_n=30):
+    """
+    Obtiene las recomendaciones basadas en el score simple precalculado.
+    Filtra explícitamente los animes con estado 'Completed', 'Watching', 'On-Hold', y 'Dropped'.
+    """
     
-    # 🔥 FILTRAR: Solo animes que el usuario NO HA VISTO
-    vistos_ids = recs[recs['my_status'] != 'NO_INTERACTUADO']['AniListID'].tolist()
-    blacklist_ids = set(load_blacklist())
-    ids_a_excluir = set(vistos_ids).union(blacklist_ids)
-    recs = recs[~recs['AniListID'].isin(ids_a_excluir)].copy()
+    # 1. Lista de animes ya vistos o en la lista del usuario (para excluir)
+    # Incluimos los estados que el usuario ha interactuado de alguna manera.
+    excluded_statuses = ['Watching', 'Completed', 'On-Hold', 'Dropped'] 
     
-    print(f"✅ Filtrado completado. Se excluyeron {len(ids_a_excluir)} animes vistos/blacklist.")
+    # Obtener los IDs de los animes que cumplen con los estados excluidos.
+    watched_anime_ids = df[df['my_status'].isin(excluded_statuses)]['id'].unique()
     
-    if recs.empty:
-        print("⚠️ No hay recomendaciones disponibles.")
+    print(f"Excluyendo {len(watched_anime_ids)} animes ya vistos/en lista: {', '.join(excluded_statuses)}.")
+
+    # 2. Filtrar el dataset procesado (df_processed) usando el filtro de exclusión
+    # El operador ~ invierte el booleano: [~df['id'].isin()] significa "IDs que NO están en la lista"
+    df_recommendations = df_processed[~df_processed['id'].isin(watched_anime_ids)].copy()
+    
+    # 3. Calcular la puntuación de recomendación final
+    # (Usando el score de popularidad precalculado)
+    df_recommendations['final_score'] = df_recommendations['normalized_score'] * df_recommendations['score']
+    
+    # 4. Filtrar por score mínimo (opcional, pero buena práctica)
+    df_recommendations = df_recommendations[df_recommendations['score'] >= 70].copy() 
+    
+    print(f"✅ Filtrado completado. Animes elegibles restantes: {len(df_recommendations)}.")
+    
+    if df_recommendations.empty:
+        print("⚠️ No hay recomendaciones disponibles después del filtrado.")
         return pd.DataFrame() 
-        
-    # Filtrar por score mínimo de MAL
-    recs = recs[recs['score'] >= 70]  # 🔥 Score mínimo de 70 en MAL
+
+    # 5. Ordenar y tomar top N
+    df_recommendations = df_recommendations.sort_values(by='final_score', ascending=False)
     
-    # Ordenar y tomar top N
-    recs = recs.sort_values(by='hybrid_score', ascending=False)
+    # Seleccionar solo las columnas necesarias para el output
+    output_columns = ['id', 'MAL_ID', 'title', 'score', 'genres', 'description', 'type', 'episodes', 'siteUrl', 'studios']
     
-    # 🔥 GARANTIZAR exactamente 10 recomendaciones
-    if len(recs) < top_n:
-        print(f"⚠️ Solo hay {len(recs)} animes disponibles, mostrando todos.")
-        return recs.head(len(recs))
-    else:
-        return recs.head(top_n)
+    # Tomar los Top N y devolver solo las columnas de salida
+    return df_recommendations[output_columns].head(top_n)
 
 # === FUNCIONES PARA ESTADÍSTICAS ===
 def load_user_ratings_only():
