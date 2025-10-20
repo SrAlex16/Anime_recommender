@@ -85,71 +85,62 @@ def preprocess_data(df):
     debug_log(f"✅ Similitud coseno calculada: {cosine_sim.shape}")
     return cosine_sim
 
-def get_recommendations(df, cosine_sim, top_n=10):
-    """Función CORREGIDA - Filtra TODOS los animes en la lista del usuario"""
-    try:
-        debug_log("Calculando recomendaciones...")
+# src/model/train_model.py
 
-        # 🔥 DEBUG: Ver qué animes tiene el usuario
-        debug_user_animes(df)
-        
-        # Calcular scores híbridos
-        score_vector = df['user_score'].values / 10 
-        total_scores = np.dot(cosine_sim, score_vector)
-        recs = df.copy()
-        recs['hybrid_score'] = total_scores
-        
-        # 🔥 CRÍTICO: Filtrar TODOS los animes que ya están en la lista del usuario
-        # Incluye todos los estados: 'Watching', 'Completed', 'On-Hold', 'Dropped', 'Plan to Watch'
-        estados_excluir = ['Watching', 'Completed', 'On-Hold', 'Dropped', 'Plan to Watch', 'PTW']
-        
-        # Obtener IDs de animes que ya están en la lista del usuario (cualquier estado)
-        animes_en_lista_ids = recs[recs['my_status'].isin(estados_excluir)]['AniListID'].tolist()
-        blacklist_ids = set(load_blacklist())
-        
-        # Combinar exclusiones
-        ids_a_excluir = set(animes_en_lista_ids).union(blacklist_ids)
-        
-        debug_log(f"🛑 Excluyendo {len(ids_a_excluir)} animes: {len(animes_en_lista_ids)} en lista + {len(blacklist_ids)} en blacklist")
-        
-        # Aplicar filtro
-        recs = recs[~recs['AniListID'].isin(ids_a_excluir)].copy()
-        
-        debug_log(f"✅ Filtrado completado. Animes disponibles: {len(recs)}")
-        
-        if recs.empty:
-            debug_log("⚠️ No hay recomendaciones disponibles después del filtrado.")
-            return pd.DataFrame() 
-            
-        # Filtrar por score mínimo de MAL
-        recs = recs[recs['score'] >= 70]
-        
-        if recs.empty:
-            debug_log("⚠️ No hay animes con score >= 70")
-            return pd.DataFrame()
-        
-        # Ordenar por score híbrido y tomar top N
-        recs = recs.sort_values(by='hybrid_score', ascending=False)
-        
-        # Seleccionar columnas de salida
-        output_columns = ['id', 'MAL_ID', 'title', 'score', 'genres', 'description', 'type', 'episodes', 'siteUrl', 'studios']
-        available_columns = [col for col in output_columns if col in recs.columns]
-        
-        result = recs[available_columns].head(top_n)
-        
-        # 🔥 VERIFICACIÓN EXTRA: Asegurar que no se recomienden animes de la lista
-        if not result.empty:
-            result_ids = result['id'].tolist()
-            conflictos = set(result_ids).intersection(ids_a_excluir)
-            if conflictos:
-                debug_log(f"❌ ERROR: Se recomiendan animes que deberían estar excluidos: {conflictos}")
-        
-        debug_log(f"✅ {len(result)} recomendaciones generadas (excluyendo {len(ids_a_excluir)} animes en lista)")
-        return result
-        
-    except Exception as e:
-        debug_log(f"❌ Error en get_recommendations: {e}")
-        return pd.DataFrame()
+import pandas as pd
+import numpy as np
+# ... (otras importaciones)
+
+# ... (Mantener las funciones preprocess_data y load_data)
+
+def get_recommendations(df, df_processed, top_n=30):
+    """
+    Obtiene las recomendaciones basadas en el score simple precalculado.
+    Excluye CUALQUIER anime que esté presente en el DataFrame del usuario (df),
+    utilizando tanto el ID de AniList ('id') como el ID de MAL ('MAL_ID').
+    """
+    
+    # 1. Obtener la lista de IDs de anime que están en la lista del usuario.
+    # ⚠️ CORRECCIÓN CLAVE: Usar AMBOS IDs para robustez
+    
+    # IDs de AniList que están en la lista del usuario
+    anilist_ids_en_lista = df['id'].dropna().unique().astype(int).tolist()
+    
+    # IDs de MAL que están en la lista del usuario
+    # Convertir a int para una comparación limpia, ignorando NaNs
+    mal_ids_en_lista = df['MAL_ID'].dropna().unique().astype(int).tolist()
+    
+    
+    print(f"Excluyendo {len(anilist_ids_en_lista)} IDs de AniList y {len(mal_ids_en_lista)} IDs de MAL de la lista del usuario.")
+
+    # 2. Filtrar el dataset procesado (df_processed)
+    
+    # Excluir por ID de AniList
+    df_recommendations = df_processed[~df_processed['id'].isin(anilist_ids_en_lista)].copy()
+    
+    # Excluir también por ID de MAL (por si el merge falló con el ID de AniList)
+    df_recommendations = df_recommendations[~df_recommendations['MAL_ID'].isin(mal_ids_en_lista)].copy()
+    
+    # 3. Calcular la puntuación de recomendación final
+    df_recommendations['final_score'] = df_recommendations['normalized_score'] * df_recommendations['score']
+    
+    # 4. Filtrar por score mínimo de AniList (score >= 70)
+    df_recommendations = df_recommendations[df_recommendations['score'] >= 70].copy() 
+    
+    print(f"✅ Filtrado completado. Animes elegibles restantes: {len(df_recommendations)}.")
+    
+    if df_recommendations.empty:
+        print("⚠️ No hay recomendaciones disponibles después del filtrado.")
+        return pd.DataFrame() 
+
+    # 5. Ordenar y tomar top N
+    df_recommendations = df_recommendations.sort_values(by='final_score', ascending=False)
+    
+    # Seleccionar solo las columnas necesarias para el output
+    output_columns = ['id', 'MAL_ID', 'title', 'score', 'genres', 'description', 'type', 'episodes', 'siteUrl', 'studios']
+    
+    # Tomar los Top N y devolver solo las columnas de salida
+    return df_recommendations[output_columns].head(top_n)
 
 def get_anime_statistics(df):
     """Calcula estadísticas simples"""
