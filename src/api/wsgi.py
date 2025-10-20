@@ -1,10 +1,9 @@
-import sys
+# wsgi.py (opcional - solo si lo necesitas)
 import os
+import sys
 
-# Añadir el directorio src al path para los imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from api.app import app
+from api.app import create_app
 
-if __name__ == "__main__":
-    app.run()
+app = create_app()
