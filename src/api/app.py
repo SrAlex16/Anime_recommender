@@ -24,6 +24,7 @@ def create_app():
             
             print(f"📁 Script path: {script_path}")
             print(f"📁 Working dir: {ROOT_DIR}")
+            print(f"📁 Current dir: {os.getcwd()}")
             
             # Verificar si el script existe
             if not os.path.exists(script_path):
@@ -41,11 +42,12 @@ def create_app():
             
             print(f"📋 Return code: {result.returncode}")
             print(f"📋 STDOUT length: {len(result.stdout)}")
+            print(f"📋 STDOUT preview: {result.stdout[:200]}...")
             
             if result.returncode == 0:
                 if not result.stdout.strip():
                     print("❌ STDOUT está vacío")
-                    return None, "El script no produció ninguna salida"
+                    return None, "El script no produjo ninguna salida"
                 
                 try:
                     output_text = result.stdout.strip()
@@ -61,11 +63,13 @@ def create_app():
                         else:
                             json_text = output_text
                     
+                    print(f"📋 JSON a parsear: {json_text[:100]}...")
                     output = json.loads(json_text)
                     return output, None
                     
                 except json.JSONDecodeError as e:
                     print(f"❌ Error decodificando JSON: {e}")
+                    print(f"❌ Contenido completo: {result.stdout}")
                     return None, f"Error decodificando JSON: {str(e)}"
             else:
                 error_msg = result.stderr or "Error desconocido en el pipeline"
@@ -81,7 +85,7 @@ def create_app():
 
     # ENDPOINTS
     @app.route('/api/recommendations/<username>', methods=['GET'])
-    def handle_user_recommendations(username):
+    def get_user_recommendations(username):
         """Endpoint principal para generar recomendaciones"""
         print(f"🎯 Solicitando recomendaciones para: {username}")
         
@@ -108,28 +112,39 @@ def create_app():
             }), 500
 
     @app.route('/api/status', methods=['GET'])
-    def handle_api_status():
+    def get_api_status():
         """Endpoint para verificar estado del servicio"""
         return jsonify({
             "status": "running",
             "timestamp": datetime.now().isoformat()
         })
 
+    @app.route('/api/health', methods=['GET'])
+    def health_check():
+        """Health check para Render"""
+        return jsonify({
+            "status": "healthy", 
+            "timestamp": datetime.now().isoformat()
+        })
+
     @app.route('/')
-    def handle_home():
+    def home():
         """Página de inicio"""
         return jsonify({
             "message": "Anime Recommendation API",
             "version": "2.0",
+            "description": "Sistema de recomendación de anime basado en contenido",
             "endpoints": {
+                "health": "/api/health",
                 "status": "/api/status", 
                 "recommendations": "/api/recommendations/<username>"
-            }
+            },
+            "example": "https://anime-recommender-1-x854.onrender.com/api/recommendations/SrAlex16"
         })
 
     return app
 
-# Crear la aplicación Flask
+# 🔥 CRÍTICO: Crear la instancia de app
 app = create_app()
 
 if __name__ == '__main__':
