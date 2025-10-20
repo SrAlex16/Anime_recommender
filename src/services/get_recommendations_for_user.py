@@ -35,6 +35,9 @@ from model.train_model import load_data, preprocess_data, get_recommendations, g
 from data.download_mal_list import download_user_list
 
 def get_recommendations_service(username):
+
+    check_and_preload_dataset()
+    
     """
     Orquesta el proceso completo: 
     1. Descarga la lista del usuario.
@@ -104,6 +107,18 @@ def get_recommendations_service(username):
             'message': f"Error en el motor de recomendación: {str(e)}",
             'timestamp': datetime.now().isoformat()
         })
+
+def check_and_preload_dataset():
+    """Verifica si el dataset base existe, si no lo descarga"""
+    ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    MERGED_ANIME_PATH = os.path.join(ROOT_DIR, "data", "merged_anime.csv")
+    
+    if not os.path.exists(MERGED_ANIME_PATH) or os.path.getsize(MERGED_ANIME_PATH) < 10000:
+        print("📥 Dataset base no encontrado. Descargando...")
+        from data.fetch_datasets import main as fetch_main
+        fetch_main()
+    else:
+        print("✅ Dataset base ya existe, saltando descarga")
 
 if __name__ == "__main__":
     # Lee el nombre de usuario del argumento de la línea de comandos

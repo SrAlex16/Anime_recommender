@@ -49,7 +49,7 @@ query ($page: Int, $perPage: Int) {
 }
 """
 
-def fetch_page(page, per_page=50):
+def fetch_page(page, per_page=20):
     # Aquí puedes añadir un manejo de errores más robusto si lo deseas
     r = requests.post(ANILIST_API, json={"query": QUERY, "variables": {"page": page, "perPage": per_page}})
     r.raise_for_status()
