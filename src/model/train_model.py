@@ -86,9 +86,12 @@ def preprocess_data(df):
     return cosine_sim
 
 def get_recommendations(df, cosine_sim, top_n=10):
-    """Función CORREGIDA - sin duplicados"""
+    """Función CORREGIDA - Filtra TODOS los animes en la lista del usuario"""
     try:
         debug_log("Calculando recomendaciones...")
+
+        # 🔥 DEBUG: Ver qué animes tiene el usuario
+        debug_user_animes(df)
         
         # Calcular scores híbridos
         score_vector = df['user_score'].values / 10 
@@ -96,16 +99,26 @@ def get_recommendations(df, cosine_sim, top_n=10):
         recs = df.copy()
         recs['hybrid_score'] = total_scores
         
-        # Filtrar animes ya vistos
-        vistos_ids = recs[recs['my_status'] != 'NO_INTERACTUADO']['AniListID'].tolist()
+        # 🔥 CRÍTICO: Filtrar TODOS los animes que ya están en la lista del usuario
+        # Incluye todos los estados: 'Watching', 'Completed', 'On-Hold', 'Dropped', 'Plan to Watch'
+        estados_excluir = ['Watching', 'Completed', 'On-Hold', 'Dropped', 'Plan to Watch', 'PTW']
+        
+        # Obtener IDs de animes que ya están en la lista del usuario (cualquier estado)
+        animes_en_lista_ids = recs[recs['my_status'].isin(estados_excluir)]['AniListID'].tolist()
         blacklist_ids = set(load_blacklist())
-        ids_a_excluir = set(vistos_ids).union(blacklist_ids)
+        
+        # Combinar exclusiones
+        ids_a_excluir = set(animes_en_lista_ids).union(blacklist_ids)
+        
+        debug_log(f"🛑 Excluyendo {len(ids_a_excluir)} animes: {len(animes_en_lista_ids)} en lista + {len(blacklist_ids)} en blacklist")
+        
+        # Aplicar filtro
         recs = recs[~recs['AniListID'].isin(ids_a_excluir)].copy()
         
-        debug_log(f"✅ Filtrado completado. Se excluyeron {len(ids_a_excluir)} animes")
+        debug_log(f"✅ Filtrado completado. Animes disponibles: {len(recs)}")
         
         if recs.empty:
-            debug_log("⚠️ No hay recomendaciones disponibles.")
+            debug_log("⚠️ No hay recomendaciones disponibles después del filtrado.")
             return pd.DataFrame() 
             
         # Filtrar por score mínimo de MAL
@@ -115,7 +128,7 @@ def get_recommendations(df, cosine_sim, top_n=10):
             debug_log("⚠️ No hay animes con score >= 70")
             return pd.DataFrame()
         
-        # Ordenar y tomar top N
+        # Ordenar por score híbrido y tomar top N
         recs = recs.sort_values(by='hybrid_score', ascending=False)
         
         # Seleccionar columnas de salida
@@ -123,7 +136,15 @@ def get_recommendations(df, cosine_sim, top_n=10):
         available_columns = [col for col in output_columns if col in recs.columns]
         
         result = recs[available_columns].head(top_n)
-        debug_log(f"✅ {len(result)} recomendaciones generadas")
+        
+        # 🔥 VERIFICACIÓN EXTRA: Asegurar que no se recomienden animes de la lista
+        if not result.empty:
+            result_ids = result['id'].tolist()
+            conflictos = set(result_ids).intersection(ids_a_excluir)
+            if conflictos:
+                debug_log(f"❌ ERROR: Se recomiendan animes que deberían estar excluidos: {conflictos}")
+        
+        debug_log(f"✅ {len(result)} recomendaciones generadas (excluyendo {len(ids_a_excluir)} animes en lista)")
         return result
         
     except Exception as e:
@@ -156,6 +177,25 @@ def get_anime_statistics(df):
         stats['total_anime_in_list'] = int(total_in_list)
 
     return stats
+
+def debug_user_animes(df):
+    """Debug: Ver qué animes tiene el usuario en su lista"""
+    user_animes = df[df['my_status'] != 'NO_INTERACTUADO'][['id', 'title', 'my_status', 'user_score']]
+    
+    debug_log(f"📊 USER ANIME LIST DEBUG:")
+    debug_log(f"Total animes en lista: {len(user_animes)}")
+    
+    # Contar por estado
+    status_counts = user_animes['my_status'].value_counts()
+    for status, count in status_counts.items():
+        debug_log(f"  {status}: {count} animes")
+    
+    # Mostrar algunos ejemplos
+    sample_animes = user_animes.head(5)
+    for _, anime in sample_animes.iterrows():
+        debug_log(f"  📺 {anime['title']} - {anime['my_status']} (Score: {anime['user_score']})")
+    
+    return user_animes
 
 if __name__ == "__main__":
     # Para testing local
