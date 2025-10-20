@@ -1,10 +1,9 @@
-# wsgi.py (en la RAIZ del proyecto)
+# src/api/wsgi.py
 import os
 import sys
 
-# Añadir el directorio actual al path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, current_dir)
+# Añadir el directorio src al path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from app import app
 
