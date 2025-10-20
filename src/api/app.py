@@ -8,6 +8,8 @@ import os
 import json
 import time
 from datetime import datetime
+import threading
+from functools import lru_cache
 
 app = Flask(__name__)
 CORS(app)
@@ -99,6 +101,40 @@ def home():
             "recommendations": "/api/recommendations/<username>"
         }
     })
+
+# Cache para evitar reprocesar el mismo usuario repetidamente
+@lru_cache(maxsize=10)
+def get_cached_recommendations(username):
+    """Cache de recomendaciones por 10 minutos"""
+    return run_pipeline(username)
+
+@app.route('/api/recommendations/<username>', methods=['GET'])
+def get_recommendations_for_user(username):
+    """Endpoint optimizado con timeout más corto"""
+    print(f"🎯 Solicitando recomendaciones para: {username}")
+    
+    # Timeout más agresivo
+    try:
+        # Usar cache si está disponible
+        response_data, error = get_cached_recommendations(username)
+        
+        if response_data and response_data.get('status') == 'success':
+            print(f"🎉 Éxito. {len(response_data['recommendations'])} animes recomendados")
+            return jsonify(response_data), 200
+        else:
+            return jsonify({
+                "status": "error",
+                "message": error or "Error desconocido",
+                "timestamp": datetime.now().isoformat()
+            }), 400
+        
+    except Exception as e:
+        print(f"❌ Error en endpoint: {e}")
+        return jsonify({
+            "status": "error", 
+            "message": f"Timeout o error interno: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }), 500
 
 if __name__ == '__main__':
     # Usar puerto de Render
