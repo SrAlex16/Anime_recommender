@@ -120,12 +120,31 @@ def create_app():
         })
 
     @app.route('/api/health', methods=['GET'])
+    @app.route('/api/health', methods=['GET'])
     def health_check():
-        """Health check para Render"""
-        return jsonify({
-            "status": "healthy", 
-            "timestamp": datetime.now().isoformat()
-        })
+        """Health check más robusto para Render"""
+        try:
+            # Verificar que los directorios críticos existen
+            required_dirs = ['src', 'src/api', 'src/data', 'src/model']
+            for dir_path in required_dirs:
+                if not os.path.exists(os.path.join(ROOT_DIR, dir_path)):
+                    return jsonify({
+                        "status": "error", 
+                        "message": f"Directorio {dir_path} no encontrado",
+                        "timestamp": datetime.now().isoformat()
+                    }), 500
+                    
+            return jsonify({
+                "status": "healthy", 
+                "timestamp": datetime.now().isoformat(),
+                "python_version": sys.version
+            })
+        except Exception as e:
+            return jsonify({
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now().isoformat()
+            }), 500
 
     @app.route('/')
     def home():
