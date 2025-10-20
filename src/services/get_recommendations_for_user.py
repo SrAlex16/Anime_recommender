@@ -16,6 +16,27 @@ def debug_log(message):
     """Función de logging para debug - FORZAR FLUSH"""
     print(f"🔍 [DEBUG] {message}", file=sys.stderr, flush=True)
 
+def verify_no_list_conflicts(df, recs):
+    """Verifica que no se recomienden animes de la lista del usuario"""
+    debug_log("🔍 VERIFICANDO QUE NO SE RECOMIENDEN ANIMES DE LA LISTA...")
+    
+    # Obtener lista de animes del usuario (todos los estados excepto NO_INTERACTUADO)
+    user_anime_ids = df[df['my_status'] != 'NO_INTERACTUADO']['id'].tolist()
+    recommended_ids = recs['id'].tolist()
+    
+    # Verificar conflictos
+    conflicts = set(user_anime_ids).intersection(set(recommended_ids))
+    if conflicts:
+        debug_log(f"❌ ALERTA: {len(conflicts)} animes de la lista fueron recomendados")
+        # Log detallado de los conflictos
+        conflict_animes = df[df['id'].isin(conflicts)][['id', 'title', 'my_status']]
+        for _, anime in conflict_animes.iterrows():
+            debug_log(f"   🚫 {anime['title']} - Estado: {anime['my_status']}")
+    else:
+        debug_log("✅ VERIFICACIÓN EXITOSA: Ningún anime de la lista fue recomendado")
+    
+    return len(conflicts) == 0
+
 def get_recommendations_service(username):
     """
     Orquesta el proceso completo con mejor manejo de errores
@@ -78,6 +99,11 @@ def get_recommendations_service(username):
             if recs.empty:
                 raise Exception("No se generaron recomendaciones.")
 
+            # 🔥 VERIFICAR QUE NO HAY CONFLICTOS CON LA LISTA DEL USUARIO
+            verification_passed = verify_no_list_conflicts(df, recs)
+            if not verification_passed:
+                debug_log("⚠️ Advertencia: Algunas recomendaciones están en la lista del usuario")
+            
             stats = get_anime_statistics(df)
             recommendations_json = json.loads(recs.to_json(orient='records'))
 
@@ -86,7 +112,8 @@ def get_recommendations_service(username):
                 'timestamp': datetime.now().isoformat(),
                 'count': len(recommendations_json),
                 'statistics': stats,
-                'recommendations': recommendations_json
+                'recommendations': recommendations_json,
+                'verification_passed': verification_passed
             }
             
             debug_log("✅ Proceso completado exitosamente")
