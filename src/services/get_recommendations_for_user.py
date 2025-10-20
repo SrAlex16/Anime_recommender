@@ -8,18 +8,16 @@ from datetime import datetime
 
 # ----------------------------------------------------
 # 💡 CORRECCIÓN CRÍTICA PARA IMPORTACIONES EN SUBPROCESO
-# Objetivo: Añadir la carpeta 'src' al path.
-# Cálculo: Subir UN nivel (de 'services/' a 'src/').
+# Subir de 'services/' a 'src/'.
 SRC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, SRC_DIR)
 # ----------------------------------------------------
 
 # Importar las funciones principales desde tus scripts
-# Ahora estas importaciones deberían funcionar, ya que 'src' está en el path.
+# ⚠️ CAMBIA ESTAS LÍNEAS PARA INCLUIR EL NOMBRE DEL DIRECTORIO (PAQUETE)
 from data.prepare_data import run_full_preparation_flow
-from data.download_mal_list import download_user_list # Necesario para iniciar
-from model.train_model import load_data, preprocess_data, get_recommendations, get_anime_statistics 
-
+from data.download_mal_list import download_user_list 
+from model.train_model import load_data, preprocess_data, get_recommendations, get_anime_statistics
 
 def get_recommendations_service(username):
     """
