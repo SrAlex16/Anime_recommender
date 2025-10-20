@@ -40,3 +40,8 @@ data/*.xml
 src/model/*.pkl
 src/model/*.h5
 src/model/*.joblib
+
+# =========================
+# Frontend Build Files
+# =========================
+frontend/
