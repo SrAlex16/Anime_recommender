@@ -1,0 +1,26 @@
+{
+  "es": {
+    "login_screen_title": "Usuario",
+    "login_screen_hint": "Usuario de MyAnimeList",
+    "login_screen_save_user": "Recordar usuario", 
+    "login_screen_button": "Obtener Datos",
+    "login_screen_note": "Nota: La cuenta de MyAnimeList debe de ser pública para obtener recomendaciones",
+    "login_error_empty_user": "El usuario no puede estar vacío",
+    "sidebar_title": "Configuración",
+    "sidebar_clear_data": "Borrar datos",
+    "language_switch": "English",
+    "sidebar_clear_confirmation": "Datos de usuario borrados."
+  },
+  "en": {
+    "login_screen_title": "User",
+    "login_screen_hint": "MyAnimeList user",
+    "login_screen_save_user": "Remember user",
+    "login_screen_button": "Get Data",
+    "login_screen_note": "Note: MyAnimeList account must be public to get recommendations",
+    "login_error_empty_user": "User cannot be empty",
+    "sidebar_title": "Settings",
+    "sidebar_clear_data": "Clear data", 
+    "language_switch": "Español",
+    "sidebar_clear_confirmation": "User data cleared."
+  }
+}

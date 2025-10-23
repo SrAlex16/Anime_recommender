@@ -1,0 +1,81 @@
+// lib/services/api_service.dart
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart'; // ✅ Importar para persistencia
+
+class ApiService {
+  // ✅ URL del endpoint de Render
+  static const String baseUrl = 'https://anime-recommender-1-x854.onrender.com'; 
+  
+  // Clave base para SharedPreferences, usando el nombre de usuario para diferenciar
+  static const String _storageKeyBase = 'recommendations_data_';
+
+  // --- MÉTODOS DE LA API ---
+
+  static Future<Map<String, dynamic>> getRecommendations(String username) async {
+    try {
+      print('🌐 Conectando con API: $baseUrl/api/recommendations/$username');
+      
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/recommendations/$username'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(
+        const Duration(seconds: 300), // ✅ TIMEOUT AUMENTADO A 5 MINUTOS (300s)
+        onTimeout: () {
+          throw const FormatException('Timeout: La solicitud tardó demasiado en responder.');
+        },
+      );
+      
+      print('📡 Response status: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        
+        // ✅ GUARDAR DATOS EN CACHÉ DESPUÉS DE UNA LLAMADA EXITOSA
+        await _saveDataToCache(username, data);
+
+        return data;
+      } else {
+        // Intentar decodificar el error si lo hay
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(errorBody['message'] ?? 'Error del servidor: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error API: $e');
+      rethrow;
+    }
+  }
+
+  // --- MÉTODOS DE CACHÉ (SHARED PREFERENCES) ---
+  
+  // ✅ Guardar la respuesta JSON completa de la API
+  static Future<void> _saveDataToCache(String username, Map<String, dynamic> data) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_storageKeyBase$username';
+      final jsonString = json.encode(data);
+      await prefs.setString(key, jsonString);
+      print('✅ Datos de recomendaciones guardados en caché para $username.');
+    } catch (e) {
+      print('❌ Error al guardar datos en caché: $e');
+    }
+  }
+
+  // ✅ Cargar los datos de la caché
+  static Future<Map<String, dynamic>?> loadDataFromCache(String username) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_storageKeyBase$username';
+      final jsonString = prefs.getString(key);
+      
+      if (jsonString != null) {
+        print('💡 Datos de recomendaciones cargados desde caché para $username.');
+        return json.decode(jsonString) as Map<String, dynamic>;
+      }
+    } catch (e) {
+      print('❌ Error al cargar datos desde caché: $e');
+    }
+    print('❌ No hay datos guardados en caché para $username.');
+    return null;
+  }
+}

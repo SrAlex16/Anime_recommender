@@ -44,4 +44,15 @@ src/model/*.joblib
 # =========================
 # Frontend Build Files
 # =========================
-frontend/
+# Ignorar dependencias, builds y archivos temporales del frontend
+/frontend/build/
+/frontend/node_modules/
+/frontend/.dart_tool/
+/frontend/.flutter-plugins
+/frontend/.flutter-plugins-dependencies
+/frontend/.idea/
+/frontend/.vscode/
+/frontend/.metadata
+/frontend/pubspec.lock
+/frontend/(nombre_del_proyecto).iml
+/frontend/.DS_Store
