@@ -151,25 +151,14 @@ def check_preloaded_data():
         debug_log("✅ Dataset base ya está precargado")
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        username = sys.argv[1]
-        debug_log(f"Ejecutando para usuario: {username}")
+    try:
+        ...
+    except Exception as e:
+        import json, traceback
+        error_output = json.dumps({
+            "status": "error",
+            "message": str(e),
+            "trace": traceback.format_exc()
+        })
+        print(error_output, flush=True)
 
-        try:
-            # Forzar UTF-8 sin buffering (Render)
-            if sys.stdout.encoding != 'UTF-8':
-                import codecs
-                sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer)
-
-            result = get_recommendations_service(username)
-            print(result, flush=True)
-
-        except Exception as e:
-            error_output = json.dumps({
-                'status': 'error',
-                'message': f'Error ejecutando servicio: {str(e)}',
-                'timestamp': datetime.now().isoformat()
-            })
-            print(error_output, flush=True)
-    else:
-        sys.exit(0)
