@@ -51,7 +51,7 @@ def get_recommendations_service(username):
         try:
             from data.download_mal_list import download_user_list
             from data.prepare_data import run_full_preparation_flow
-            from model.train_model import load_data, preprocess_data, get_recommendations, get_anime_statistics
+            from src.model.train_model import load_data, preprocess_data, get_recommendations, get_anime_statistics
             debug_log("✅ Módulos importados correctamente")
         except ImportError as e:
             debug_log(f"❌ Error importando módulos: {e}")

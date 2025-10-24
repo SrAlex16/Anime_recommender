@@ -22,6 +22,20 @@ USER_RATINGS_PATH = os.path.join(DATA_DIR, "user_ratings.csv")
 BLACKLIST_PATH = os.path.join(DATA_DIR, "blacklist.json")
 PREPARE_SCRIPT_PATH = os.path.join(ROOT_DIR, 'src', 'data', 'prepare_data.py')
 
+def get_anime_statistics(df):
+    """
+    Retorna estadísticas generales del dataset de animes.
+    df: DataFrame con la información de animes.
+    """
+    stats = {
+        "total_animes": len(df),
+        "avg_score": round(df["score"].mean(), 2) if "score" in df.columns else None,
+        "avg_episodes": round(df["episodes"].mean(), 2) if "episodes" in df.columns else None,
+        "genres_count": len(set(sum(df["genres"].dropna().apply(lambda x: eval(x) if isinstance(x, str) else x), []))) if "genres" in df.columns else 0
+    }
+    return stats
+
+
 def debug_log(message):
     """Función de logging para debug - FORZAR FLUSH"""
     print(f"🔍 [DEBUG] {message}", file=sys.stderr, flush=True)
@@ -358,7 +372,6 @@ def main_with_json():
             'message': f'Error fatal del pipeline: {str(e)}',
             'timestamp': datetime.now().isoformat()
         })
-
 
 if __name__ == "__main__":
     # Para testing local
