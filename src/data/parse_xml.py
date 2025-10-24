@@ -1,5 +1,4 @@
-# src/data/parse_xml.py (Ahora lee JSON, pero mantiene el nombre original)
-
+# src/data/parse_xml.py
 import os
 import csv
 import json # 💡 CAMBIO: Importar JSON
