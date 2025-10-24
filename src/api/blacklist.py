@@ -1,3 +1,5 @@
+# src/api/blacklist.py
+
 from flask import Blueprint, request, jsonify
 
 # Creamos un blueprint para separar la lógica
