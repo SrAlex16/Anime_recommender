@@ -16,7 +16,7 @@ def preload_static_data():
         result = subprocess.run([
             sys.executable, 
             "src/data/fetch_datasets.py"
-        ], capture_output=True, text=True, timeout=120, cwd=ROOT_DIR)
+        ], capture_output=True, text=True, timeout=300, cwd=ROOT_DIR)
         
         print(f"📋 STDOUT: {result.stdout}")
         if result.stderr:
