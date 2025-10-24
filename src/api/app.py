@@ -6,139 +6,221 @@ import sys
 import os
 import json
 from datetime import datetime
-import traceback
+# ✅ NUEVOS IMPORTS para la blacklist
+from src.model.train_model import add_to_blacklist, load_blacklist 
+from src.api.blacklist import blacklist_bp
 
-# CRÍTICO: Configurar paths - Sube 3 niveles: src/api/ -> src/ -> ROOT_DIR
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, ROOT_DIR)
-
-# Directorios a verificar en el health check
-DIRS_TO_CHECK = [
-    'data',
-    'src/data',
-    'src/model',
-    'src/services',
-    'src/api'
-]
+# Endpoint de prueba
+@app.route("/api/health")
+def health():
+    import sys
+    import platform
+    return {
+        "status": "healthy",
+        "python_version": platform.python_version(),
+        "timestamp": __import__("datetime").datetime.utcnow().isoformat()
+    }
 
 def create_app():
-    """Crea y configura la instancia de la aplicación Flask."""
     app = Flask(__name__)
-    CORS(app) # Habilitar CORS para permitir llamadas desde el frontend
+    CORS(app)
 
-    def debug_log(message):
-        """Función de logging para debug - FORZAR FLUSH"""
-        print(f"🔍 [DEBUG - API] {message}", file=sys.stderr, flush=True)
+    # Registrar el blueprint de blacklist
+    app.register_blueprint(blacklist_bp)
+
+    # Configurar paths - desde src/api/
+    ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    sys.path.insert(0, ROOT_DIR)
 
     def run_pipeline(username):
         """Ejecutar el pipeline completo de recomendación"""
         try:
-            debug_log(f"🚀 Iniciando pipeline para usuario: {username}")
+            print(f"🚀 Iniciando pipeline para usuario: {username}")
             
-            # Ruta al script principal que orquesta el proceso
             script_path = os.path.join(ROOT_DIR, 'src', 'services', 'get_recommendations_for_user.py')
             
-            debug_log(f"📁 Script path: {script_path}")
-            debug_log(f"📁 Working dir: {ROOT_DIR}")
+            print(f"📁 Script path: {script_path}")
+            print(f"📁 Working dir: {ROOT_DIR}")
+            print(f"📁 Current dir: {os.getcwd()}")
             
             # Verificar si el script existe
             if not os.path.exists(script_path):
-                debug_log(f"❌ Script no encontrado: {script_path}")
+                print(f"❌ Script no encontrado: {script_path}")
                 return None, f"Script no encontrado: {script_path}"
             
-            # FORZAR ENCODING UTF-8 para manejo de subprocesos en entornos de servidor
+            # FORZAR ENCODING UTF-8
             env = os.environ.copy()
             env['PYTHONIOENCODING'] = 'utf-8'
             env['PYTHONUTF8'] = '1'
             
-            # Ejecutar el script como subproceso con el nombre de usuario
+            # Usar sys.executable para asegurar el entorno virtual
             result = subprocess.run([
                 sys.executable, '-u', script_path, username
-            ], capture_output=True, text=True, cwd=ROOT_DIR, env=env, timeout=360) # Timeout de 6 minutos (360s)
+            ], capture_output=True, text=True, timeout=300, cwd=ROOT_DIR, env=env) # Timeout a 5 minutos
             
-            # 🔥 CRÍTICO: El script de servicio imprime el resultado JSON final en stdout.
-            # No usar STDOUT para logging, solo STDERR.
-            
+            # Imprimir STDOUT y STDERR para debugging
+            print(f"📋 STDOUT (pipeline): {result.stdout}")
+            print(f"📋 STDERR (pipeline): {result.stderr}")
+
             if result.returncode != 0:
-                error_message = f"El script finalizó con código de error {result.returncode}."
-                debug_log(f"❌ {error_message} STDERR: {result.stderr}")
+                error_message = f"El pipeline de Python falló con código {result.returncode}."
                 
-                # Intentar parsear el error si el script lo imprimió en stdout
+                # Intentar extraer error del output si existe
                 try:
+                    # El script final debería imprimir un JSON de error al stdout
                     error_data = json.loads(result.stdout.strip())
                     if error_data.get('status') == 'error':
-                        return None, error_data.get('message', error_message)
-                except json.JSONDecodeError:
-                    pass
-                
-                # Si no se pudo obtener un error específico, usar el stderr
-                return None, f"{error_message} Detalles: {result.stderr.strip()[:200]}"
+                        error_message = error_data.get('message', error_message)
+                except:
+                    # Si no es un JSON, usar el stderr
+                    if result.stderr:
+                         error_message += f" STDERR: {result.stderr}"
+                    
+                print(f"❌ Error en la ejecución del pipeline: {error_message}")
+                return None, error_message
 
-
-            # Intentar decodificar el JSON de la salida estándar
+            # El resultado debe ser un string JSON en la salida estándar
+            output_json_str = result.stdout.strip()
+            
+            # Intentar decodificar la salida JSON
             try:
-                # El resultado JSON es la única cosa que debe estar en result.stdout
-                response_json = json.loads(result.stdout.strip())
-                debug_log("✅ Pipeline ejecutado exitosamente.")
-                return response_json, None
-            except json.JSONDecodeError as e:
-                debug_log(f"❌ Error al decodificar JSON de la salida. STDERR: {result.stderr}. STDOUT: {result.stdout}")
-                return None, f"Error interno del servidor: No se pudo procesar la respuesta del pipeline. Detalles: {str(e)}"
-
+                data = json.loads(output_json_str)
+                return data, None
+            except json.JSONDecodeError:
+                 print(f"❌ Error de decodificación JSON en el output del pipeline. Output: {output_json_str}")
+                 return None, "Respuesta inválida del pipeline (no es JSON válido)."
+            
         except subprocess.TimeoutExpired:
-            error_msg = "Timeout: El pipeline tardó demasiado en ejecutarse (> 6 minutos)."
-            debug_log(f"❌ {error_msg}")
-            return None, error_msg
+            return None, "Timeout: El proceso de recomendación tardó demasiado (5 minutos)."
         except Exception as e:
-            error_msg = f"Error grave al ejecutar el subproceso: {str(e)}"
-            debug_log(f"❌ {error_msg} Traceback: {traceback.format_exc()}")
-            return None, error_msg
+            return None, str(e)
 
-    # --- ENDPOINTS ---
 
     @app.route('/api/recommendations/<username>', methods=['GET'])
     def get_recommendations(username):
-        """Endpoint para obtener las recomendaciones de anime para un usuario."""
-        username = username.strip()
-        if not username:
-            return jsonify({
-                "status": "error",
-                "message": "El nombre de usuario no puede estar vacío.",
-                "timestamp": datetime.now().isoformat()
-            }), 400
-
-        # El pipeline devuelve un dict o None, y un error_msg o None
-        result, error = run_pipeline(username)
+        """Genera recomendaciones para un usuario de MyAnimeList."""
+        data, error = run_pipeline(username)
 
         if error:
-            # Si hay un error, el código de estado HTTP será 500
             return jsonify({
                 "status": "error",
                 "message": error,
                 "timestamp": datetime.now().isoformat()
             }), 500
         
-        # Si no hay error, el resultado debe ser el JSON completo (incluyendo status: success)
-        if result:
-            return jsonify(result), 200
-        else:
-            # Fallback si result es None pero error es None (no debería pasar)
+        # El pipeline ya devuelve el formato JSON final (incluyendo status: 'success')
+        return jsonify(data), 200
+
+    # --- ✅ NUEVO ENDPOINT: Blacklist API (POST) ---
+    @app.route('/api/blacklist', methods=['POST'])
+    def handle_blacklist():
+        """
+        Añade IDs de anime a la blacklist global.
+        Espera un cuerpo JSON con la clave 'anime_ids': [123, 456, ...]
+        """
+        try:
+            # 1. Verificar el tipo de contenido
+            if not request.is_json:
+                return jsonify({
+                    "status": "error",
+                    "message": "Content-Type debe ser 'application/json'",
+                    "timestamp": datetime.now().isoformat()
+                }), 415 # Unsupported Media Type
+
+            data = request.get_json()
+            anime_ids = data.get('anime_ids')
+
+            # 2. Validar el cuerpo de la petición
+            if not anime_ids or not isinstance(anime_ids, list):
+                return jsonify({
+                    "status": "error",
+                    "message": "Falta la clave 'anime_ids' o no es una lista válida",
+                    "timestamp": datetime.now().isoformat()
+                }), 400 # Bad Request
+
+            # 3. Procesar la blacklist
+            final_list = add_to_blacklist(anime_ids)
+            
+            # 4. Respuesta de éxito
+            return jsonify({
+                "status": "success",
+                "message": f"{len(anime_ids)} IDs procesados. Total en blacklist: {len(final_list)}",
+                "total_blacklisted": len(final_list),
+                "timestamp": datetime.now().isoformat()
+            }), 200
+
+        except Exception as e:
+            # 5. Respuesta de error interno
+            print(f"❌ Error en /api/blacklist: {e}")
             return jsonify({
                 "status": "error",
-                "message": "Error desconocido al generar recomendaciones.",
+                "message": f"Error interno del servidor al actualizar blacklist: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            }), 500 # Internal Server Error
+    
+    # --- ✅ NUEVO ENDPOINT: Blacklist API (GET - opcional para verificación) ---
+    @app.route('/api/blacklist', methods=['GET'])
+    def get_blacklist():
+        """Retorna la lista completa de IDs en la blacklist."""
+        try:
+            blacklist = load_blacklist()
+            return jsonify({
+                "status": "success",
+                "data": blacklist,
+                "total_blacklisted": len(blacklist),
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        except Exception as e:
+            return jsonify({
+                "status": "error",
+                "message": f"Error al obtener blacklist: {str(e)}",
                 "timestamp": datetime.now().isoformat()
             }), 500
 
     @app.route('/api/health', methods=['GET'])
     def health_check():
-        """Endpoint para verificar la salud y la configuración de la API."""
+        """Retorna el estado de salud de la aplicación (solo verifica Flask)."""
         try:
-            # Verificar si los directorios clave existen
-            for dir_path in DIRS_TO_CHECK:
+            # Este es un chequeo muy básico, solo verifica que la aplicación Flask está corriendo.
+            return jsonify({
+                "status": "healthy", 
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        except Exception as e:
+            return jsonify({
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now().isoformat()
+            }), 500
+
+    @app.route('/api/status', methods=['GET'])
+    def status():
+        """Retorna el estado del sistema, incluyendo verificación de archivos críticos."""
+        # Rutas a verificar
+        critical_files = [
+            'data/final_dataset.csv',
+            'src/data/fetch_datasets.py',
+            'src/model/train_model.py',
+            'src/services/get_recommendations_for_user.py',
+        ]
+        
+        try:
+            # 1. Verificar archivos críticos
+            for file_path in critical_files:
+                if not os.path.exists(os.path.join(ROOT_DIR, file_path)):
+                    return jsonify({
+                        "status": "error", 
+                        "message": f"Archivo crítico no encontrado: {file_path}",
+                        "timestamp": datetime.now().isoformat()
+                    }), 500
+            
+            # 2. Verificar directorios
+            critical_dirs = ['data', 'src/data', 'src/model', 'src/services']
+            for dir_path in critical_dirs:
                 if not os.path.exists(os.path.join(ROOT_DIR, dir_path)):
                     return jsonify({
                         "status": "error", 
-                        "message": f"Directorio clave no encontrado: {dir_path}",
+                        "message": f"Directorio {dir_path} no encontrado",
                         "timestamp": datetime.now().isoformat()
                     }), 500
                     
@@ -148,7 +230,6 @@ def create_app():
                 "python_version": sys.version
             })
         except Exception as e:
-            debug_log(f"❌ Error en health_check: {str(e)}")
             return jsonify({
                 "status": "error",
                 "message": str(e),
@@ -157,14 +238,17 @@ def create_app():
 
     @app.route('/')
     def home():
-        """Página de inicio (ruta raíz)"""
+        """Página de inicio"""
         return jsonify({
             "message": "Anime Recommendation API",
             "version": "2.0",
-            "description": "Sistema de recomendación de anime basado en contenido (Content-Based Filtering)",
+            "description": "Sistema de recomendación de anime basado en contenido",
             "endpoints": {
                 "health": "/api/health",
-                "recommendations": "/api/recommendations/<username>"
+                "status": "/api/status", 
+                "recommendations": "/api/recommendations/<username>",
+                "blacklist_post": "/api/blacklist (POST)", # ✅ NUEVO ENDPOINT
+                "blacklist_get": "/api/blacklist (GET)" # ✅ NUEVO ENDPOINT
             },
             "example": "https://anime-recommender-1-x854.onrender.com/api/recommendations/SrAlex16"
         })
@@ -175,9 +259,6 @@ def create_app():
 app = create_app()
 
 if __name__ == '__main__':
-    # Usar el puerto proporcionado por el entorno, o 5000 por defecto
     port = int(os.environ.get('PORT', 5000))
     print(f"🚀 Iniciando servidor en puerto {port}")
-    # Nota: En un entorno de producción como Render, se usa Gunicorn o similar.
-    # Esta parte es para ejecución local o un simple entorno de desarrollo.
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port)
