@@ -1,10 +1,10 @@
 // lib/services/api_service.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart'; // ✅ Importar para persistencia
+import 'package:shared_preferences/shared_preferences.dart'; // Importar para persistencia
 
 class ApiService {
-  // ✅ URL del endpoint de Render
+  // URL del endpoint de Render
   static const String baseUrl = 'https://anime-recommender-1-x854.onrender.com'; 
   
   // Clave base para SharedPreferences, usando el nombre de usuario para diferenciar
@@ -20,7 +20,7 @@ class ApiService {
         Uri.parse('$baseUrl/api/recommendations/$username'),
         headers: {'Content-Type': 'application/json'},
       ).timeout(
-        const Duration(seconds: 300), // ✅ TIMEOUT AUMENTADO A 5 MINUTOS (300s)
+        const Duration(seconds: 300), // TIMEOUT AUMENTADO A 5 MINUTOS (300s)
         onTimeout: () {
           throw const FormatException('Timeout: La solicitud tardó demasiado en responder.');
         },
@@ -31,7 +31,7 @@ class ApiService {
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
         
-        // ✅ GUARDAR DATOS EN CACHÉ DESPUÉS DE UNA LLAMADA EXITOSA
+        // GUARDAR DATOS EN CACHÉ DESPUÉS DE UNA LLAMADA EXITOSA
         await _saveDataToCache(username, data);
 
         return data;
@@ -48,7 +48,7 @@ class ApiService {
 
   // --- MÉTODOS DE CACHÉ (SHARED PREFERENCES) ---
   
-  // ✅ Guardar la respuesta JSON completa de la API
+  // Guardar la respuesta JSON completa de la API
   static Future<void> _saveDataToCache(String username, Map<String, dynamic> data) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -61,7 +61,7 @@ class ApiService {
     }
   }
 
-  // ✅ Cargar los datos de la caché
+  // Cargar los datos de la caché
   static Future<Map<String, dynamic>?> loadDataFromCache(String username) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -77,5 +77,22 @@ class ApiService {
     }
     print('❌ No hay datos guardados en caché para $username.');
     return null;
+  }
+  
+  // ✅ IMPLEMENTACIÓN DEL MÉTODO FALTANTE clearCache
+  // Limpia todos los datos de recomendaciones de la caché, independientemente del usuario.
+  static Future<void> clearCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Obtenemos todas las claves y filtramos solo aquellas que almacenan datos de recomendación
+      final keysToRemove = prefs.getKeys().where((key) => key.startsWith(_storageKeyBase)).toList();
+      
+      for (final key in keysToRemove) {
+        await prefs.remove(key);
+      }
+      print('✅ Caché de recomendaciones limpiada. ${keysToRemove.length} entradas eliminadas.');
+    } catch (e) {
+      print('❌ Error al limpiar la caché de recomendaciones: $e');
+    }
   }
 }

@@ -49,6 +49,8 @@ class _LoginScreenState extends State<LoginScreen> {
     await prefs.setString('language', newLang);
     setState(() {
       _language = newLang;
+      // Recargar textos para el nuevo idioma
+      _loadLanguage(); 
     });
   }
 
@@ -83,35 +85,37 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _clearData() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('savedUsernames');
+    // ✅ TRADUCIDO
+    await ApiService.clearCache(); // Asegurarse de limpiar la caché del API
+    
     setState(() {
       _savedUsers.clear();
       _usernameController.clear();
       _isUserSaved = false;
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Datos borrados')),
+      SnackBar(content: Text(tr('sidebar_clear_confirmation'))), // ✅ Traducido
     );
   }
-
-  // Se elimina la función _fetchRecommendationsFromServer
 
   void _showLoadingDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Generando Recomendaciones'),
+        title: Text(tr('recommendations_loading_title')), // ✅ Traducido
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: const [
-            Text('Ejecutando motor de recomendaciones...'),
-            SizedBox(height: 20),
-            CircularProgressIndicator(),
-            SizedBox(height: 20),
+          children: [
+            Text(tr('loading_message_running_engine')), // ✅ Traducido
+            const SizedBox(height: 20),
+            const CircularProgressIndicator(),
+            const SizedBox(height: 20),
             Text(
-              'Esto puede tomar varios segundos\nDescargando datos y procesando...',
+              // ✅ Combinación de mensajes traducidos
+              '${tr('recommendations_loading_message_info')}\n${tr('recommendations_loading_message_tip')}',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12),
+              style: const TextStyle(fontSize: 12),
             ),
           ],
         ),
@@ -123,24 +127,24 @@ class _LoginScreenState extends State<LoginScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Error'),
+        title: Text(tr('error_dialog_title')), // ✅ Traducido
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('No se pudieron generar recomendaciones.'),
+              Text(tr('error_message_general')), // ✅ Traducido
               const SizedBox(height: 16),
-              const Text('Posibles soluciones:'),
+              Text(tr('error_solutions_title')), // ✅ Traducido
               const SizedBox(height: 8),
-              const Text('• Verifica que Python esté instalado'),
-              const Text('• Asegúrate de tener las dependencias:'),
-              const Text('  pandas, numpy, scikit-learn, requests'),
-              const Text('• Comprueba la conexión a internet'),
+              Text(tr('error_solution_python')), // ✅ Traducido
+              Text(tr('error_solution_dependencies')), // ✅ Traducido
+              const Text('  pandas, numpy, scikit-learn, requests'), // Dependencias sin traducir
+              Text(tr('error_solution_internet')), // ✅ Traducido
               const SizedBox(height: 16),
-              const Text(
-                'Error técnico:',
-                style: TextStyle(fontWeight: FontWeight.bold),
+              Text(
+                tr('error_technical_title'), // ✅ Traducido
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               Text(
                 error.length > 200 ? '${error.substring(0, 200)}...' : error,
@@ -152,7 +156,7 @@ class _LoginScreenState extends State<LoginScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            child: Text(tr('common_ok')), // ✅ Traducido
           ),
         ],
       ),
@@ -171,7 +175,6 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // El resultado puede venir de la caché o de la API
     Map<String, dynamic>? resultData;
     bool loadedFromCache = false;
 
@@ -182,7 +185,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (resultData != null) {
         loadedFromCache = true;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Datos de recomendaciones cargados desde la caché.')),
+          SnackBar(content: Text(tr('cache_loaded_message'))), // ✅ Traducido
         );
       } 
       
@@ -197,14 +200,14 @@ class _LoginScreenState extends State<LoginScreen> {
         
         // Cerrar el diálogo de carga al recibir respuesta
         if (Navigator.of(context, rootNavigator: true).canPop()) {
-             Navigator.of(context, rootNavigator: true).pop();
+              Navigator.of(context, rootNavigator: true).pop();
         }
         
         // Mapear el resultado de la API
         resultData = {
           'recommendations': apiResult['recommendations'],
           'statistics': apiResult['statistics'],
-          'status': 'success', // Asumir éxito si PythonRunner no lanzó excepción
+          'status': 'success', 
         };
       }
       
@@ -218,22 +221,21 @@ class _LoginScreenState extends State<LoginScreen> {
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (context) => AnimeRecommendationsScreen(
-                // ✅ USAR OPERADOR ! PARA CONFIRMAR NO NULIDAD
                 recommendations: resultData!['recommendations'] as List<dynamic>,
                 statistics: resultData!['statistics'] as Map<String, dynamic>,
+                tr: tr, // ✅ CRUCIAL: Pasamos la función de traducción
               ),
             ),
           );
       } else if (!loadedFromCache) {
-         // Si la API devuelve datos, pero con formato incorrecto
-         throw Exception('Error: Los datos de recomendaciones o estadísticas tienen un formato incorrecto.');
+          // Si la API devuelve datos, pero con formato incorrecto
+          throw Exception('Error: Los datos de recomendaciones o estadísticas tienen un formato incorrecto.');
       }
       
     } on Exception catch (e) {
       // Asegurar el cierre del diálogo de carga en caso de error
-      // Usamos canPop() para evitar un error si el diálogo ya se cerró en el try block.
       if (Navigator.of(context, rootNavigator: true).canPop()) {
-         Navigator.of(context, rootNavigator: true).pop();
+          Navigator.of(context, rootNavigator: true).pop();
       }
       
       print('❌ Error: $e');
@@ -243,6 +245,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ... (El Drawer y el cuerpo ya usan tr() correctamente)
     return Scaffold(
       drawerEdgeDragWidth: MediaQuery.of(context).size.width,
       drawer: Drawer(
