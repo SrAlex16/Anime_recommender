@@ -56,3 +56,13 @@ src/model/*.joblib
 /frontend/pubspec.lock
 /frontend/(nombre_del_proyecto).iml
 /frontend/.DS_Store
+
+# Flutter / Android build outputs
+frontend/anime_recommender_app/build/
+frontend/anime_recommender_app/.dart_tool/
+*.apk
+*.so
+*.jar
+*.bin
+*.dill
+*.zip
