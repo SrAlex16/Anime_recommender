@@ -7,10 +7,13 @@ import os
 import traceback
 
 # Configuración de paths
-SRC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-ROOT_DIR = os.path.dirname(SRC_DIR)
-sys.path.insert(0, SRC_DIR)
-sys.path.insert(0, ROOT_DIR)
+# 🔧 Forzar que Python reconozca 'src' como paquete raíz
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "..", ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, CURRENT_DIR)
+sys.path.insert(0, PROJECT_ROOT)
 
 def debug_log(message):
     """Función de logging para debug - FORZAR FLUSH"""
