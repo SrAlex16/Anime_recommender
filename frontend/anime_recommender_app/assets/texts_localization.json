@@ -33,7 +33,11 @@
     "stats_last_update": "Última actualización:",
     "common_na": "N/A",
     "details_description_title": "Sinopsis:",
-    "stats_not_available": "Estadísticas no disponibles"
+    "stats_not_available": "Estadísticas no disponibles",
+    "blacklist_button": "Añadir a la Blacklist",
+    "blacklist_confirmation": "Animes añadidos a la Blacklist y eliminados de la lista.",
+    "blacklist_error": "Error al añadir a la Blacklist: ",
+    "blacklist_sending": "Enviando animes a la Blacklist..."
   },
   "en": {
     "login_screen_title": "User",
@@ -69,6 +73,10 @@
     "stats_last_update": "Last update:",
     "common_na": "N/A",
     "details_description_title": "Synopsis:",
-    "stats_not_available": "Statistics not available"
+    "stats_not_available": "Statistics not available",
+    "blacklist_button": "Add to Blacklist",
+    "blacklist_confirmation": "Animes added to Blacklist and removed from the list.",
+    "blacklist_error": "Error adding to Blacklist: ",
+    "blacklist_sending": "Sending animes to Blacklist..."
   }
 }

@@ -11,6 +11,31 @@ class ApiService {
   static const String _storageKeyBase = 'recommendations_data_';
 
   // --- MÉTODOS DE LA API ---
+  // ✅ NUEVO: Método para enviar IDs a la Blacklist
+  static Future<Map<String, dynamic>> addToBlacklist(List<int> animeIds) async {
+      try {
+          print('🌐 Enviando ${animeIds.length} IDs a la Blacklist API...');
+          
+          final response = await http.post(
+              Uri.parse('$baseUrl/api/blacklist'), // ✅ Nuevo endpoint
+              headers: {'Content-Type': 'application/json'},
+              body: json.encode({'anime_ids': animeIds}),
+          ).timeout(const Duration(seconds: 30));
+          
+          print('📡 Blacklist Response status: ${response.statusCode}');
+          
+          final data = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+
+          if (response.statusCode == 200) {
+              return data;
+          } else {
+              throw Exception(data['message'] ?? 'Error al añadir a la blacklist');
+          }
+      } catch (e) {
+          print('❌ Error API Blacklist: $e');
+          rethrow;
+      }
+  }
 
   static Future<Map<String, dynamic>> getRecommendations(String username) async {
     try {
