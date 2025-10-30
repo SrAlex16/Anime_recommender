@@ -1,5 +1,5 @@
 # src/api/app.py
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 import subprocess
 import sys
@@ -7,166 +7,140 @@ import os
 import json
 from datetime import datetime
 
+# ✅ Importar blueprint de blacklist
+from src.api.blacklist import blacklist_bp
+
 def create_app():
     app = Flask(__name__)
     CORS(app)
 
+    # Registrar blueprint de blacklist
+    app.register_blueprint(blacklist_bp)
+
     # Configurar paths - desde src/api/
+    # Sube dos niveles para ir a la raíz del proyecto
     ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     sys.path.insert(0, ROOT_DIR)
 
+    # ---------------- Pipeline Recommendations ----------------
     def run_pipeline(username):
         """Ejecutar el pipeline completo de recomendación"""
         try:
-            print(f"🚀 Iniciando pipeline para usuario: {username}")
-            
+            # Llama al script orquestador que gestiona la descarga y el modelo
             script_path = os.path.join(ROOT_DIR, 'src', 'services', 'get_recommendations_for_user.py')
-            
-            print(f"📁 Script path: {script_path}")
-            print(f"📁 Working dir: {ROOT_DIR}")
-            print(f"📁 Current dir: {os.getcwd()}")
-            
-            # Verificar si el script existe
             if not os.path.exists(script_path):
-                print(f"❌ Script no encontrado: {script_path}")
                 return None, f"Script no encontrado: {script_path}"
-            
-            # FORZAR ENCODING UTF-8
+
             env = os.environ.copy()
             env['PYTHONIOENCODING'] = 'utf-8'
             env['PYTHONUTF8'] = '1'
-            
-            result = subprocess.run([
-                sys.executable, '-u', script_path, username
-            ], capture_output=True, text=True, cwd=ROOT_DIR, timeout=300, env=env)
-            
-            print(f"📋 Return code: {result.returncode}")
-            print(f"📋 STDOUT length: {len(result.stdout)}")
-            print(f"📋 STDOUT preview: {result.stdout[:200]}...")
-            
-            if result.returncode == 0:
-                if not result.stdout.strip():
-                    print("❌ STDOUT está vacío")
-                    return None, "El script no produjo ninguna salida"
-                
-                try:
-                    output_text = result.stdout.strip()
-                    
-                    # Buscar JSON en la salida
-                    if output_text.startswith('{'):
-                        json_text = output_text
-                    else:
-                        start_idx = output_text.find('{')
-                        end_idx = output_text.rfind('}') + 1
-                        if start_idx != -1 and end_idx != 0:
-                            json_text = output_text[start_idx:end_idx]
-                        else:
-                            json_text = output_text
-                    
-                    print(f"📋 JSON a parsear: {json_text[:100]}...")
-                    output = json.loads(json_text)
-                    return output, None
-                    
-                except json.JSONDecodeError as e:
-                    print(f"❌ Error decodificando JSON: {e}")
-                    print(f"❌ Contenido completo: {result.stdout}")
-                    return None, f"Error decodificando JSON: {str(e)}"
-            else:
-                error_msg = result.stderr or "Error desconocido en el pipeline"
-                print(f"❌ Error en pipeline: {error_msg}")
-                return None, error_msg
-                
-        except subprocess.TimeoutExpired:
-            print("❌ Error de timeout del subproceso (5 minutos).")
-            return None, "El proceso de recomendación tardó más de 5 minutos."
-        except Exception as e:
-            print(f"❌ Error al ejecutar el subproceso: {e}")
-            return None, f"Error interno al ejecutar el pipeline: {str(e)}"
 
-    # ENDPOINTS
-    @app.route('/api/recommendations/<username>', methods=['GET'])
-    def get_user_recommendations(username):
-        """Endpoint principal para generar recomendaciones"""
-        print(f"🎯 Solicitando recomendaciones para: {username}")
-        
-        try:
-            response_data, error = run_pipeline(username)
+            result = subprocess.run(
+                [sys.executable, '-u', script_path, username],
+                capture_output=True, text=True, timeout=300, cwd=ROOT_DIR, env=env
+            )
+
+            # El script de python devuelve un JSON string en su stdout
+            output = result.stdout.strip()
             
-            if response_data and response_data.get('status') == 'success':
-                print(f"🎉 Éxito. Recomendaciones generadas: {len(response_data['recommendations'])} animes")
-                return jsonify(response_data), 200
-            else:
-                error_msg = error or response_data.get('message', 'Error desconocido en el pipeline')
+            if result.returncode != 0:
+                error_message = f"Pipeline falló con código {result.returncode}."
+                if result.stderr:
+                     error_message += f" STDERR: {result.stderr.strip()[:500]}"
+                return None, error_message
+            
+            # El output debe ser un JSON
+            try:
+                # El script está diseñado para imprimir un JSON final
+                return json.loads(output), None
+            except json.JSONDecodeError:
+                error_message = f"Error al decodificar JSON de salida. STDOUT: {output[:500]}"
+                if result.stderr:
+                    error_message += f" STDERR: {result.stderr.strip()[:500]}"
+                return None, error_message
+
+
+        except subprocess.TimeoutExpired:
+            return None, "Timeout: El pipeline de recomendación tardó demasiado (más de 5 minutos)."
+        except Exception as e:
+            return None, f"Error inesperado al ejecutar el pipeline: {str(e)}"
+
+    @app.route('/api/recommendations/<username>', methods=['GET'])
+    def get_recommendations(username):
+        if not username:
+            return jsonify({
+                "status": "error",
+                "message": "El nombre de usuario es requerido.",
+                "timestamp": datetime.now().isoformat()
+            }), 400
+
+        print(f"⚙️ Iniciando pipeline para usuario: {username}")
+        recommendations_data, error = run_pipeline(username)
+
+        if error:
+            print(f"❌ Error en la recomendación: {error}")
+            return jsonify({
+                "status": "error",
+                "message": error,
+                "timestamp": datetime.now().isoformat()
+            }), 500
+
+        # El JSON ya viene estructurado con 'status', 'recommendations', 'statistics', etc.
+        return jsonify(recommendations_data), 200
+
+
+    @app.route('/api/health')
+    def health_check():
+        """Verificación de salud simple"""
+        try:
+            # Verificar un módulo crítico, por ejemplo, pandas
+            import pandas as pd
+        except ImportError as e:
+            return jsonify({
+                "status": "error",
+                "message": f"Dependencia crítica no encontrada: {e}",
+                "timestamp": datetime.now().isoformat()
+            }), 500
+
+        # Verificar si existen directorios críticos
+        critical_dirs = ['data', os.path.join('src', 'model'), os.path.join('src', 'data')]
+
+        for dir_path in critical_dirs:
+            if not os.path.exists(os.path.join(ROOT_DIR, dir_path)):
                 return jsonify({
                     "status": "error",
-                    "message": error_msg,
+                    "message": f"Directorio crítico no encontrado: {dir_path}",
                     "timestamp": datetime.now().isoformat()
-                }), 400
-            
-        except Exception as e:
-            print(f"❌ Error en endpoint: {e}")
-            return jsonify({
-                "status": "error",
-                "message": f"Error interno del servidor: {str(e)}",
-                "timestamp": datetime.now().isoformat()
-            }), 500
+                }), 500
 
-    @app.route('/api/status', methods=['GET'])
-    def get_api_status():
-        """Endpoint para verificar estado del servicio"""
         return jsonify({
-            "status": "running",
-            "timestamp": datetime.now().isoformat()
-        })
-
-    @app.route('/api/health', methods=['GET'])
-    @app.route('/api/health', methods=['GET'])
-    def health_check():
-        """Health check más robusto para Render"""
-        try:
-            # Verificar que los directorios críticos existen
-            required_dirs = ['src', 'src/api', 'src/data', 'src/model']
-            for dir_path in required_dirs:
-                if not os.path.exists(os.path.join(ROOT_DIR, dir_path)):
-                    return jsonify({
-                        "status": "error", 
-                        "message": f"Directorio {dir_path} no encontrado",
-                        "timestamp": datetime.now().isoformat()
-                    }), 500
-                    
-            return jsonify({
-                "status": "healthy", 
-                "timestamp": datetime.now().isoformat(),
-                "python_version": sys.version
-            })
-        except Exception as e:
-            return jsonify({
-                "status": "error",
-                "message": str(e),
-                "timestamp": datetime.now().isoformat()
-            }), 500
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "python_version": sys.version
+        }), 200
 
     @app.route('/')
     def home():
-        """Página de inicio"""
         return jsonify({
             "message": "Anime Recommendation API",
             "version": "2.0",
             "description": "Sistema de recomendación de anime basado en contenido",
             "endpoints": {
                 "health": "/api/health",
-                "status": "/api/status", 
-                "recommendations": "/api/recommendations/<username>"
+                "status": "/api/status",
+                "recommendations": "/api/recommendations/<username>",
+                "blacklist_post": "/api/blacklist (POST)",
+                "blacklist_get": "/api/blacklist (GET)"
             },
             "example": "https://anime-recommender-1-x854.onrender.com/api/recommendations/SrAlex16"
         })
 
     return app
 
-# 🔥 CRÍTICO: Crear la instancia de app
+# ---------------- Crear instancia ----------------
 app = create_app()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"🚀 Iniciando servidor en puerto {port}")
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=True)

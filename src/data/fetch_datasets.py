@@ -7,8 +7,7 @@ import pandas as pd
 import subprocess
 from tqdm import tqdm  # 💡 CORRECCIÓN CRÍTICA: Importar la clase tqdm directamente
 
-# --- CONFIGURACIÓN DE RUTAS PORTABLE (3 NIVELES) ---
-# Sube tres niveles: src/data -> src -> anime_recommender (ROOT_DIR)
+# --- CONFIGURACIÓN DE RUTAS PORTABLE (3 NIVELES) ---\n# Sube tres niveles: src/data -> src -> anime_recommender (ROOT_DIR)
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Construye la ruta a la carpeta 'data' en la raíz
 DATA_DIR = os.path.join(ROOT_DIR, "data")
@@ -22,8 +21,8 @@ QUERY = """
 query ($page: Int, $perPage: Int) {
   Page(page: $page, perPage: $perPage) {
     media(type: ANIME, sort: POPULARITY_DESC) {
-      id
-      idMal
+      id # AniList ID
+      idMal # MyAnimeList ID (CRÍTICO para la fusión)
       title {
         romaji
         english
@@ -49,24 +48,50 @@ query ($page: Int, $perPage: Int) {
 }
 """
 
-def fetch_page(page, per_page=20):
-    # Aquí puedes añadir un manejo de errores más robusto si lo deseas
-    r = requests.post(ANILIST_API, json={"query": QUERY, "variables": {"page": page, "perPage": per_page}})
-    r.raise_for_status()
-    data = r.json()
-    return data.get("data", {}).get("Page", {}).get("media", [])
+def fetch_page(page, per_page=50):
+    """Obtiene una página de la API de AniList."""
+    variables = {'page': page, 'perPage': per_page}
+    
+    try:
+        response = requests.post(ANILIST_API, json={'query': QUERY, 'variables': variables})
+        response.raise_for_status()
+        data = response.json()
+        
+        # Verificar si hay datos en la página
+        if data and 'data' in data and data['data']['Page']['media']:
+            return data['data']['Page']['media']
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error de red al obtener la página {page}: {e}", file=sys.stderr)
+        return None
 
 def normalize(media_list):
+    """Normaliza y limpia la lista de medios a un DataFrame de Pandas."""
     rows = []
     for m in media_list:
+        title = m.get('title', {})
+        mal_id = m.get('idMal')
+        
+        # Saltarse si no tiene MAL ID, ya que es la clave de fusión
+        if mal_id is None:
+            continue
+            
+        # Asegurar que los campos de lista sean listas
+        tags = [t['name'] for t in m.get('tags', []) if isinstance(t, dict) and t.get('name')]
+        genres = m.get('genres', [])
+        
+        # Normalizar la puntuación de 1-100 a 1-10.0
+        score_100 = m.get('averageScore', 0)
+        score_10 = round(score_100 / 10, 1) if score_100 else 0.0
+
         rows.append({
-            "AniListID": m.get("id"),
-            "MalID": m.get("idMal"),
-            "title": m.get("title", {}).get("english") or m.get("title", {}).get("romaji"),
+            "id": m.get("id"), # AniList ID
+            "idMal": mal_id, # MAL ID
+            "title": title.get('romaji') or title.get('english') or title.get('native') or "Título Desconocido",
             "description": m.get("description"),
-            "genres": m.get("genres") or [],
-            "tags": [t["name"] for t in m.get("tags", []) if isinstance(t, dict) and t.get("name")],
-            "score": m.get("averageScore"),
+            "genres": genres,
+            "tags": tags,
+            "averageScore": score_10, # Puntuación normalizada
             "episodes": m.get("episodes"),
             "status": m.get("status"),
             "type": m.get("type"),
@@ -79,8 +104,10 @@ def normalize(media_list):
         })
 
     df = pd.DataFrame(rows)
-    df = df.drop_duplicates(subset=["AniListID"]).reset_index(drop=True)
-    df = df[df["MalID"].notna()].copy()
+    # CRÍTICO: Eliminar duplicados basándose en el ID de AniList
+    df = df.drop_duplicates(subset=["id"]).reset_index(drop=True) 
+    # CRÍTICO: Solo mantener animes que tengan un MalID para la fusión
+    df = df[df["idMal"].notna()].copy() 
 
     return df
 
@@ -92,26 +119,31 @@ def fetch_all(max_pages=50):
         for page in range(1, max_pages + 1):
             try:
                 media = fetch_page(page)
-                if not media:
+                if media is None:
                     break
                 
                 all_data.extend(media)
                 pbar.update(len(media))
                 
-                time.sleep(1) 
-            except Exception:
-                # El error se maneja en el subprocess en prepare_data.py
+                time.sleep(1) # Respetar el límite de rate de la API de AniList
+            except Exception as e:
+                print(f"❌ Error inesperado en la página {page}: {e}", file=sys.stderr)
                 break
             
     return normalize(all_data)
 
 def main():
     df = fetch_all()
+    if df.empty:
+        print("❌ Fallo al descargar el dataset base.", file=sys.stderr)
+        sys.exit(1)
+        
     # Asegurarse de que el directorio 'data' exista en la raíz del proyecto
     os.makedirs(DATA_DIR, exist_ok=True) 
-    df.to_csv(MERGED_PATH, index=False, encoding="utf-8")
-    # Imprime la ruta final para confirmación
-    print(f"\n✅ merged_anime.csv generado en {os.path.abspath(MERGED_PATH)} ({len(df)} filas).")
+    df.to_csv(MERGED_PATH, index=False)
+    
+    print(f"🎉 Dataset base de {len(df)} animes guardado en: {MERGED_PATH}", file=sys.stderr)
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     main()

@@ -1,166 +1,135 @@
-# src/data/prepare_data.py (Versión con flujo automatizado y orquestación)
+# src/data/prepare_data.py - CORREGIDO (Fusión por MAL ID y renombramiento de score)
 import os
 import sys
 import pandas as pd
 import subprocess
 import ast
+# Importación necesaria para el orquestador si parse_xml.py está en el mismo nivel
+try:
+    from src.data.parse_xml import parse_and_save_ratings 
+except ImportError:
+    # Manejo si se ejecuta directamente y no está configurado el path
+    pass 
+
+# --- FUNCIÓN DE LOGGING ---
+def log_info(message):
+    print(message, file=sys.stderr, flush=True)
+def log_error(message):
+    print(f"❌ {message}", file=sys.stderr, flush=True)
+# --------------------------
 
 # CRÍTICO: Sube TRES niveles (de src/data/ a la raíz del proyecto)
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(ROOT_DIR, "data") 
 
 # Rutas de los archivos intermedios y finales
-MERGED_ANIME_PATH = os.path.join(DATA_DIR, "merged_anime.csv") # Output de fetch_datasets.py
-USER_RATINGS_PATH = os.path.join(DATA_DIR, "user_ratings.csv") # Output de parse_xml.py
-FINAL_DATA_PATH = os.path.join(DATA_DIR, "final_dataset.csv") # Output de este script
+MERGED_ANIME_PATH = os.path.join(DATA_DIR, "merged_anime.csv") 
+USER_RATINGS_PATH = os.path.join(DATA_DIR, "user_ratings.csv") 
+FINAL_DATA_PATH = os.path.join(DATA_DIR, "final_dataset.csv") 
 
-# Rutas de los scripts que se ejecutarán como subprocesos
-FETCH_SCRIPT_PATH = "fetch_datasets.py"
-PARSE_SCRIPT_PATH = "parse_xml.py"
-
-# === FUNCIONES DE UTILIDAD ===
-def get_script_full_path(script_name):
-    """Devuelve la ruta completa al script que está en src/data/."""
-    # Los scripts están en el mismo directorio (src/data/)
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), script_name)
-
-MIN_FILE_SIZE = 10 * 1024 # 10 KB
-
-def run_script_if_missing(file_path, script_name):
-    """
-    Ejecuta un script como subproceso si el archivo de salida
-    está ausente, es demasiado pequeño o ha fallado previamente.
-    """
-    is_missing = not os.path.exists(file_path) or os.path.getsize(file_path) < MIN_FILE_SIZE
-    
-    if is_missing:
-        full_script_path = get_script_full_path(script_name)
-        
-        print(f"⚙️ Ejecutando script: {script_name} para generar {os.path.basename(file_path)}")
-        
-        try:
-            # Ejecutar el script usando el intérprete actual (sys.executable)
-            result = subprocess.run(
-                [sys.executable, full_script_path], 
-                capture_output=True, 
-                text=True, 
-                check=True, # Lanza CalledProcessError si el código de salida no es 0
-                cwd=DATA_DIR # Asegurarse de que el directorio de trabajo sea 'data' si los scripts lo necesitan
-            )
-            # Imprimir salida del script para logs de Render
-            print(result.stdout)
-            print(result.stderr)
-            
-            if result.returncode != 0:
-                raise subprocess.CalledProcessError(result.returncode, result.args, output=result.stdout, stderr=result.stderr)
-                
-            print(f"✅ Ejecución de {script_name} completada.")
-        
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Error al ejecutar {script_name}. Salida: {e.stderr.strip()}")
-            # Re-lanzar el error para que sea capturado por el servicio principal
-            raise e
-        except Exception as e:
-            print(f"❌ Error desconocido al ejecutar {script_name}: {str(e)}")
-            raise e
-
-
-# === FUNCIÓN DE LÓGICA PRINCIPAL ===
+# === FUNCIONES DE LÓGICA PRINCIPAL ===
 def merge_and_clean_data():
     """
     Carga el dataset principal y los ratings del usuario, los fusiona
-    y guarda el dataset final en final_dataset.csv.
+    usando el ID de MAL (MalID) y guarda el dataset final.
     """
-    print("🔄 Fusionando datos de anime y ratings de usuario...")
+    log_info("🔄 Fusionando datos de anime y ratings de usuario por MAL ID...")
     
     if not os.path.exists(MERGED_ANIME_PATH):
-        raise FileNotFoundError(f"Archivo base de anime no encontrado: {MERGED_ANIME_PATH}")
+        raise FileNotFoundError(f"❌ Error: El dataset base de anime no existe: {MERGED_ANIME_PATH}")
     if not os.path.exists(USER_RATINGS_PATH):
-        raise FileNotFoundError(f"Archivo de ratings de usuario no encontrado: {USER_RATINGS_PATH}")
+        raise FileNotFoundError(f"❌ Error: El archivo de ratings de usuario no existe: {USER_RATINGS_PATH}")
 
     try:
+        # Cargar los datasets
         df_anime = pd.read_csv(MERGED_ANIME_PATH)
         df_ratings = pd.read_csv(USER_RATINGS_PATH)
     except Exception as e:
-        print(f"❌ Error al leer archivos CSV: {e}")
+        log_error(f"Error al cargar los datasets: {e}")
         raise e
 
-    # 1. Preparar df_anime: convertir la columna de ID a entero para el merge
-    # Se asume que el ID de AniList es el ID principal para el merge
-    df_anime['id_merge'] = df_anime['AniListID'].astype(str).str.split('.').str[0].astype(int)
+    # Renombrar columnas para la fusión y la lógica
+    # CRÍTICO: Renombrar MalID en df_anime para que coincida con anime_id en df_ratings
+    df_anime = df_anime.rename(columns={'idMal': 'anime_id', 'id': 'AniListID', 'averageScore': 'score'})
+    df_ratings = df_ratings.rename(columns={'anime_id': 'anime_id', 'my_score': 'user_score'})
 
-    # 2. Preparar df_ratings: renombrar y limpiar
-    # Asumimos que la columna 'anime_id' en df_ratings es el AniList ID
-    df_ratings = df_ratings.rename(columns={'anime_id': 'id_merge', 'my_score': 'user_score'})
-    df_ratings = df_ratings[df_ratings['user_score'] > 0] # Solo animes calificados
+    # 💡 Se ha detectado que el df_anime tiene 'id' (AniListID) y 'anime_id' (MalID) después de renombrar
+    # Usaremos 'anime_id' (MalID) para la fusión.
+    # df_anime['anime_id'] es el MalID (el ID de la lista del usuario)
+    # df_anime['AniListID'] es el ID principal del dataset base
 
-    # 3. Merge: Unir ratings del usuario con el dataset principal
-    df_final = pd.merge(
-        df_anime, 
-        df_ratings[['id_merge', 'user_score', 'my_status']], 
-        on='id_merge', 
+    # Fusionar por el ID de MyAnimeList (que es 'anime_id' en ambos después del renombramiento)
+    df_merged = pd.merge(
+        df_anime,
+        df_ratings[['anime_id', 'user_score', 'my_status']],
+        on='anime_id',
         how='left'
-    ).rename(columns={'id_merge': 'AniListID'})
+    )
     
-    # 4. Limpieza y Guardado (Lógica sin cambios)
-    df_final.drop(columns=['mal_id_merge', 'MAL_ID'], errors='ignore', inplace=True)
-    df_final = df_final.rename(columns={'AniListID': 'id', 'MalID': 'MAL_ID'})
-    df_final = df_final[df_final['title'].astype(bool)].copy()
-    
-    if 'id' in df_final.columns:
-         df_final.drop_duplicates(subset=['id'], keep='first', inplace=True)
-         
-    # Intentar convertir listas de strings de vuelta a listas (para TF-IDF)
-    cols_to_convert = ['genres', 'tags', 'studios']
-    for col in cols_to_convert:
-        if col in df_final.columns:
-            df_final[col] = df_final[col].apply(
-                lambda x: ast.literal_eval(x) if pd.notna(x) and isinstance(x, str) and x.startswith('[') else []
-            )
+    # Rellenar los valores nulos para animes que el usuario NO ha interactuado
+    df_merged['user_score'] = df_merged['user_score'].fillna(0).astype(int)
+    df_merged['my_status'] = df_merged['my_status'].fillna('NO_INTERACTUADO')
 
-    if len(df_final) < 500: 
-        print(f"❌ Error: El dataset final es demasiado pequeño ({len(df_final)} filas).")
-        # En Render, esto puede ser un error fatal, pero lo dejamos pasar si es solo advertencia
-        # sys.exit(1) # No usar sys.exit() aquí, solo lanzar excepción si es fatal.
-        
+    # Renombrar las columnas finales para la consistencia
+    df_final = df_merged.rename(columns={'anime_id': 'MAL_ID', 'AniListID': 'id'})
+    
+    # 💡 Convertir las columnas de listas de string a listas de Python (necesario si se lee de CSV)
+    # df_final['genres'] = df_final['genres'].apply(
+    #     lambda x: ast.literal_eval(x) if isinstance(x, str) and x.startswith('[') else []
+    # )
+            
+    # Asegurar el orden de columnas
     columnas = ['id', 'MAL_ID', 'user_score', 'my_status', 'status', 'title', 'genres',
                 'tags', 'score', 'description', 'type', 'episodes', 'siteUrl', 'studios']
     
+    # Usar las columnas que realmente existen después del merge
     df_final = df_final[[c for c in columnas if c in df_final.columns]].copy()
     
     # Asegurarse de que el directorio exista
     os.makedirs(DATA_DIR, exist_ok=True)
     df_final.to_csv(FINAL_DATA_PATH, index=False)
     
-    print(f"🎉 Dataset final de {len(df_final)} filas guardado en: {FINAL_DATA_PATH}")
+    log_info(f"🎉 Dataset final de {len(df_final)} filas guardado en: {FINAL_DATA_PATH}")
 
 
-# === FUNCIÓN DE ORQUESTACIÓN (LA QUE FALTABA) ===
+# === FUNCIÓN DE ORQUESTACIÓN ===
 def run_full_preparation_flow(username):
     """
-    Ejecuta todos los pasos de preparación y limpieza de datos en orden.
+    Ejecuta el parsing de datos de usuario y la fusión con el dataset base.
+    El script de descarga (download_mal_list.py) debe ser llamado ANTES.
     """
-    print("🛠️ Iniciando el flujo completo de preparación de datos...")
+    log_info("🛠️ Iniciando el flujo simplificado de preparación de datos...")
     
-    # 1. Asegurarse de que el dataset de anime base exista (fetch_datasets.py)
-    run_script_if_missing(MERGED_ANIME_PATH, FETCH_SCRIPT_PATH)
+    # 1. Asegurarse de que los ratings del usuario estén parseados
+    try:
+        # Esta función lee el JSON descargado por download_mal_list.py y genera user_ratings.csv
+        parse_and_save_ratings()
+        log_info("✅ Ratings de usuario parseados.")
+    except Exception as e:
+        log_error(f"Error durante el parseo de datos de usuario: {e}")
+        raise e
     
-    # 2. Asegurarse de que los ratings del usuario estén parseados (parse_xml.py)
-    run_script_if_missing(USER_RATINGS_PATH, PARSE_SCRIPT_PATH)
-    
-    # 3. Fusionar y limpiar los datos finales
+    # 2. Fusionar y limpiar los datos finales
     merge_and_clean_data()
     
-    print("✅ Flujo de preparación de datos completado exitosamente.")
+    log_info("✅ Flujo de preparación de datos completado exitosamente.")
     return True
 
 
 if __name__ == '__main__':
-    # Bloque de ejecución local para pruebas
-    print("Ejecutando prepare_data.py directamente (solo para pruebas locales).")
+    # Este bloque se mantiene para pruebas locales.
+    log_info("Ejecutando prepare_data.py directamente (solo para pruebas locales).")
+    
+    if len(sys.argv) > 1:
+        USERNAME = sys.argv[1]
+    else:
+        USERNAME = "SrAlex16" 
+    
+    log_info(f"Usando usuario simulado para prueba local: {USERNAME}")
+    
     try:
-        # Nota: La lista de usuario debe estar en DATA_DIR/user_mal_list.json antes de ejecutar esto
-        run_full_preparation_flow("test_user") 
+        # Se asume que download_mal_list.py ya se ejecutó con el username para crear el JSON.
+        run_full_preparation_flow(USERNAME)
     except Exception as e:
-        print(f"Fallo en la ejecución principal: {e}")
+        log_error(f"Fallo en el flujo de preparación: {e}")
         sys.exit(1)

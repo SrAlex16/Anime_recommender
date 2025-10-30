@@ -17,6 +17,8 @@ USER_JSON_OUTPUT_FILE = os.path.join(DATA_DIR, "user_mal_list.json")
 PAGE_SIZE = 300 
 ENDPOINT_BASE = "https://myanimelist.net/animelist/{user}/load.json?status=7&offset={offset}"
 
+def debug_log(message):
+    print(f"🔍 [DOWNLOAD_DEBUG] {message}", file=sys.stderr, flush=True)
 
 def download_user_list(username):
     """
@@ -25,69 +27,74 @@ def download_user_list(username):
     username = username.strip()
     
     if not username:
-        print("❌ Error: El nombre de usuario no puede estar vacío.")
+        debug_log("❌ Error: El nombre de usuario no puede estar vacío.")
         return False
 
     full_list = []
     offset = 0
     
-    print(f"📡 Iniciando descarga de la lista de: {username}...")
-    print(" (La lista debe ser pública para funcionar sin login.)")
+    debug_log(f"📡 Iniciando descarga de la lista de: {username}...")
+    debug_log(" (La lista debe ser pública para funcionar sin login.)")
+    
+    # Asegurarse de crear el directorio antes de escribir
+    os.makedirs(DATA_DIR, exist_ok=True)
 
     while True:
         url = ENDPOINT_BASE.format(user=username, offset=offset)
         
         try:
             time.sleep(0.5) 
-            response = requests.get(url, headers={'User-Agent': 'MAL-List-Downloader-IA-App'})
+            response = requests.get(url, headers={'User-Agent': 'MAL-List-Downloader-V2.0'})
+            response.raise_for_status() # Lanza HTTPError para códigos de error (4xx o 5xx)
             
-            if response.status_code != 200:
-                print(f"❌ Error HTTP {response.status_code} al solicitar offset {offset}. La descarga se detiene.")
-                if response.status_code == 404:
-                    print(f"💡 Consejo: Verifica el nombre de usuario '{username}' y que la lista sea pública.")
-                return False
-
+            # Si el JSON es vacío (solo "[]\n"), significa que no hay más datos.
+            if not response.text.strip() or response.text.strip() == '[]':
+                break
+            
             data = response.json()
             
+            if not isinstance(data, list):
+                debug_log(f"\n❌ Error: La respuesta de la API no es una lista en el offset {offset}.")
+                return False
+                
             if not data:
-                break
+                break # Lista vacía, finaliza el bucle
             
             full_list.extend(data)
             
-            print(f"✅ Bloque descargado. Total de entradas: {len(full_list)}", end='\r', flush=True)
+            debug_log(f"✅ Bloque descargado. Total de entradas: {len(full_list)}")
             
             offset += len(data)
 
         except requests.exceptions.RequestException as e:
-            print(f"\n❌ Error de conexión al descargar el bloque (offset: {offset}): {e}")
+            debug_log(f"\n❌ Error de conexión al descargar el bloque (offset: {offset}): {e}")
             return False
         except json.JSONDecodeError:
-            print(f"\n❌ Error al decodificar JSON en el offset {offset}. Respuesta inválida.")
+            debug_log(f"\n❌ Error al decodificar JSON en el offset {offset}. Respuesta inválida.")
             return False
 
     if full_list:
-        print(f"\n🎉 Descarga completa. Se encontraron {len(full_list)} entradas de anime.")
+        debug_log(f"\n🎉 Descarga completa. Se encontraron {len(full_list)} entradas de anime.")
         
         # Guardar la lista completa como un único archivo JSON
-        os.makedirs(DATA_DIR, exist_ok=True)
         with open(USER_JSON_OUTPUT_FILE, 'w', encoding='utf-8') as f:
             json.dump(full_list, f, indent=4)
         
-        print(f"El archivo '{os.path.basename(USER_JSON_OUTPUT_FILE)}' se guardó en {os.path.abspath(DATA_DIR)}.")
+        debug_log(f"El archivo '{os.path.basename(USER_JSON_OUTPUT_FILE)}' se guardó en {os.path.abspath(DATA_DIR)}.")
         return True
     else:
-        print("\n⚠️ No se encontraron entradas o la lista está vacía.")
+        debug_log("\n⚠️ No se encontraron entradas o la lista está vacía.")
         return False
 
 def main():
-    # Pedir el nombre de usuario por consola
-    USERNAME = input("Por favor, introduce el nombre de usuario de MyAnimeList (MAL) para descargar la lista: ")
+    # Este bloque solo se ejecuta cuando se llama directamente, no desde el orquestador
+    if len(sys.argv) > 1:
+        USERNAME = sys.argv[1]
+    else:
+        USERNAME = input("Por favor, introduce el nombre de usuario de MyAnimeList (MAL) para descargar la lista: ")
     
     if not download_user_list(USERNAME):
-        # Si la descarga falla, el script termina con un código de error
         sys.exit(1)
-        
-    sys.exit(0) 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

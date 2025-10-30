@@ -15,8 +15,8 @@ def preload_static_data():
         # Ejecutar fetch_datasets.py
         result = subprocess.run([
             sys.executable, 
-            "src/data/fetch_datasets.py"
-        ], capture_output=True, text=True, timeout=120, cwd=ROOT_DIR)
+            os.path.join("src", "data", "fetch_datasets.py") # Ruta relativa a ROOT_DIR
+        ], capture_output=True, text=True, timeout=300, cwd=ROOT_DIR)
         
         print(f"📋 STDOUT: {result.stdout}")
         if result.stderr:
@@ -26,7 +26,7 @@ def preload_static_data():
             print("✅ Dataset base precargado exitosamente")
             return True
         else:
-            print(f"❌ Error en precarga: {result.stderr}")
+            print(f"❌ Error en precarga (Código {result.returncode}): {result.stderr}")
             return False
             
     except subprocess.TimeoutExpired:
@@ -38,4 +38,5 @@ def preload_static_data():
 
 if __name__ == "__main__":
     success = preload_static_data()
+    # Devolver código de salida para que el servicio de hosting sepa si fue exitoso
     sys.exit(0 if success else 1)

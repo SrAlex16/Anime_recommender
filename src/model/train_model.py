@@ -1,4 +1,4 @@
-# src/model/train_model.py - VERSIÓN COMPLETA CON TODAS LAS FUNCIONES
+# src/model/train_model.py - VERSIÓN FINAL Y ROBUSTA
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import linear_kernel
@@ -6,12 +6,16 @@ from sklearn.decomposition import TruncatedSVD
 import os
 import sys
 import json
-import subprocess
 import numpy as np
 from collections import Counter
 import ast
-import traceback
 from datetime import datetime
+import traceback
+import csv
+
+# Función de log para asegurar que no se corrompa el JSON de salida
+def debug_log(message):
+    print(f"🔍 [MODEL_DEBUG] {message}", file=sys.stderr, flush=True)
 
 # Configuración de paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,368 +23,311 @@ ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 DATA_DIR = os.path.join(ROOT_DIR, "data")
 FINAL_DATASET_PATH = os.path.join(DATA_DIR, "final_dataset.csv")
 USER_RATINGS_PATH = os.path.join(DATA_DIR, "user_ratings.csv") 
-BLACKLIST_PATH = os.path.join(DATA_DIR, "blacklist.json")
-PREPARE_SCRIPT_PATH = os.path.join(ROOT_DIR, 'src', 'data', 'prepare_data.py')
+BLACKLIST_FILE = os.path.join(DATA_DIR, "runtime_blacklist.json")
 
-def debug_log(message):
-    """Función de logging para debug - FORZAR FLUSH"""
-    print(f"🔍 [DEBUG] {message}", file=sys.stderr, flush=True)
 
-def get_project_root():
-    return ROOT_DIR
-
-def load_blacklist():
-    if not os.path.exists(BLACKLIST_PATH):
-        return []
-    try:
-        with open(BLACKLIST_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            return [int(id) for id in data if str(id).isdigit()]
-    except Exception:
-        return []
-
-def get_user_anime_ids_from_source():
-    """Obtiene los IDs de anime directamente del JSON original del usuario"""
-    try:
-        user_json_path = os.path.join(DATA_DIR, "user_mal_list.json")
-        
-        if not os.path.exists(user_json_path):
-            debug_log("❌ user_mal_list.json no encontrado")
-            return set()
-        
-        with open(user_json_path, 'r', encoding='utf-8') as f:
-            user_data = json.load(f)
-        
-        # Extraer todos los anime_id del JSON
-        user_anime_ids = set()
-        for item in user_data:
-            anime_id = item.get('anime_id')
-            if anime_id is not None:
-                user_anime_ids.add(int(anime_id))
-        
-        debug_log(f"📊 user_mal_list.json contiene {len(user_anime_ids)} animes únicos")
-        
-        # 🔥 DEBUG: Mostrar algunos ejemplos del JSON
-        debug_log("🔍 Ejemplos del JSON original:")
-        for i, item in enumerate(user_data[:3]):
-            debug_log(f"   📝 Anime {i+1}: ID={item.get('anime_id')}, Title='{item.get('anime_title')}', Status={item.get('status')}")
-        
-        return user_anime_ids
-        
-    except Exception as e:
-        debug_log(f"❌ Error leyendo user_mal_list.json: {e}")
-        return set()
-
-def debug_user_animes(df):
-    """Debug: Ver qué animes tiene el usuario desde la fuente directa"""
-    user_anime_ids = get_user_anime_ids_from_source()
-    
-    debug_log(f"📊 USER ANIME LIST DEBUG (desde JSON):")
-    debug_log(f"Total animes en lista: {len(user_anime_ids)}")
-    
-    # Mostrar algunos ejemplos con títulos
-    debug_log("🔍 Ejemplos de animes en lista del usuario:")
-    sample_ids = list(user_anime_ids)[:8]
-    for anime_id in sample_ids:
-        anime_info = df[df['id'] == anime_id]
-        if not anime_info.empty:
-            title = anime_info.iloc[0]['title']
-            status = anime_info.iloc[0]['my_status'] if 'my_status' in anime_info.columns else 'Unknown'
-            debug_log(f"   📺 {title} (ID: {anime_id}) - Estado: {status}")
-        else:
-            debug_log(f"   ❓ Anime ID {anime_id} no encontrado en dataset")
-    
-    return user_anime_ids
+# === 1. FUNCIONES AUXILIARES ===
 
 def load_data():
-    if not os.path.exists(FINAL_DATASET_PATH) or os.path.getsize(FINAL_DATASET_PATH) <= 100:
-        debug_log("⚠️ Archivo 'final_dataset.csv' no encontrado. Generando...")
-        try:
-            subprocess.run([sys.executable, PREPARE_SCRIPT_PATH], check=True)
-        except subprocess.CalledProcessError as e:
-            debug_log(f"❌ Error al ejecutar prepare_data.py: {e}")
-            sys.exit(1)
-
+    """Carga el dataset final y aplica limpieza básica."""
+    if not os.path.exists(FINAL_DATASET_PATH) or os.path.getsize(FINAL_DATASET_PATH) < 1000:
+        raise FileNotFoundError(f"El dataset final no existe o está vacío: {FINAL_DATASET_PATH}")
+    
     df = pd.read_csv(FINAL_DATASET_PATH)
+
+    # Convertir las listas guardadas como strings a listas de Python
+    for col in ['genres', 'tags', 'studios']:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: ast.literal_eval(x) if pd.notna(x) and isinstance(x, str) and x.startswith('[') else [])
+
+    # Crear el campo de features combinadas
+    def combine_features(row):
+        features = []
+        if 'genres' in row and row['genres']:
+            features.extend(row['genres'])
+        if 'tags' in row and row['tags']:
+            features.extend(row['tags'])
+        if 'studios' in row and row['studios']:
+            features.extend(row['studios'])
+        # Agregar el tipo de anime
+        if 'type' in row and pd.notna(row['type']):
+             features.append(row['type'])
+        
+        return ' '.join(features)
+
+    df['combined_features'] = df.apply(combine_features, axis=1)
     
-    # Limpieza y preparación de datos
-    df['user_score'] = df['user_score'].fillna(0.0)
-    df['my_status'] = df['my_status'].fillna('NO_INTERACTUADO')
-    df['my_status'] = df['my_status'].replace('', 'NO_INTERACTUADO') 
-
-    # Procesar listas de géneros y tags
-    for col in ['genres', 'tags']:
-        df[col] = df[col].apply(lambda x: ast.literal_eval(x) if pd.notna(x) and isinstance(x, str) and '[' in x else [])
-        df[col] = df[col].apply(lambda x: ' '.join([str(i).replace(" ", "") for i in x]))
-
-    # Combinar características para TF-IDF
-    df['combined_features'] = df.apply(
-        lambda row: f"{row['title']} {row['genres']} {row['tags']} {row['description']}", 
-        axis=1
-    )
-    
-    df = df.rename(columns={'type': 'Tipo'})
-    df['AniListID'] = df['id']
-
-    debug_log(f"✅ Dataset cargado: {len(df)} filas, columnas: {list(df.columns)}")
     return df
 
-def preprocess_data(df):
-    """Preprocesa los datos y calcula la matriz de similitud"""
-    try:
-        debug_log("Iniciando preprocesamiento TF-IDF y SVD...")
-        
-        tfidf = TfidfVectorizer(stop_words='english', max_features=10000)
-        df['combined_features'] = df['combined_features'].fillna('')
-        tfidf_matrix = tfidf.fit_transform(df['combined_features'])
-        
-        debug_log(f"✅ TF-IDF completado: {tfidf_matrix.shape}")
-        
-        # Aplicar SVD para reducción de dimensionalidad
-        n_components = min(tfidf_matrix.shape) - 1
-        if n_components <= 0:
-            debug_log("❌ No hay suficientes componentes para SVD")
-            return None
-            
-        n_svd = min(100, n_components)  # Reducir para mayor estabilidad
-        svd = TruncatedSVD(n_components=n_svd, random_state=42)
-        latent_matrix = svd.fit_transform(tfidf_matrix)
-        
-        debug_log(f"✅ SVD aplicado: {latent_matrix.shape}")
-        
-        # Calcular similitud coseno
-        cosine_sim = linear_kernel(latent_matrix, latent_matrix)
-        debug_log(f"✅ Similitud coseno calculada: {cosine_sim.shape}")
-        
-        return cosine_sim
-        
-    except Exception as e:
-        debug_log(f"❌ Error en preprocess_data: {e}")
-        debug_log(f"❌ Traceback: {traceback.format_exc()}")
-        return None
-
-def get_recommendations(df, cosine_sim, top_n=10):
-    """Función CORREGIDA: recomienda animes excluyendo los que el usuario ya vio (por MAL_ID)"""
-    try:
-        debug_log("🎯 Calculando recomendaciones...")
-
-        # 🔥 Obtener IDs del usuario directamente del JSON
-        user_anime_ids_from_json = get_user_anime_ids_from_source()
-        if not user_anime_ids_from_json:
-            debug_log("❌ No se pudieron obtener IDs del usuario desde el JSON")
-            return pd.DataFrame()
-
-        debug_log(f"🛑 Excluyendo {len(user_anime_ids_from_json)} animes del usuario (por MAL_ID)")
-
-        # 🔥 Asegurar que la columna MAL_ID sea int
-        df['MAL_ID'] = df['MAL_ID'].fillna(0).astype(int)
-
-        # Calcular scores híbridos
-        score_vector = df['user_score'].values.astype(float) / 10.0
-
-        # Ajustar dimensiones si es necesario
-        if score_vector.shape[0] != cosine_sim.shape[1]:
-            debug_log(f"⚠️ Ajustando dimensiones: score_vector {score_vector.shape} vs cosine_sim {cosine_sim.shape}")
-            min_dim = min(score_vector.shape[0], cosine_sim.shape[1])
-            score_vector = score_vector[:min_dim]
-            cosine_sim = cosine_sim[:min_dim, :min_dim]
-
-        # Calcular puntuaciones híbridas
-        total_scores = np.dot(cosine_sim, score_vector)
-        recs = df.copy()
-        recs['hybrid_score'] = total_scores
-
-        # 🔥 FILTRADO: excluir animes ya vistos (MAL_ID)
-        recs = recs[~recs['MAL_ID'].isin(user_anime_ids_from_json)].copy()
-        debug_log(f"✅ Filtrado completado. Animes disponibles: {len(recs)}")
-
-        if recs.empty:
-            debug_log("⚠️ No hay recomendaciones disponibles después del filtrado.")
-            return pd.DataFrame()
-
-        # Filtrar por score mínimo de MAL
-        recs = recs[recs['score'] >= 70]
-        if recs.empty:
-            debug_log("⚠️ No hay animes con score >= 70")
-            return pd.DataFrame()
-
-        # Ordenar por score híbrido y tomar top N
-        recs = recs.sort_values(by='hybrid_score', ascending=False).head(top_n)
-
-        # 🔥 VERIFICACIÓN FINAL: asegurar que no se recomienden animes del usuario
-        conflicts = recs[recs['MAL_ID'].isin(user_anime_ids_from_json)]
-        if not conflicts.empty:
-            debug_log(f"❌ ERROR CRÍTICO: {len(conflicts)} animes del usuario fueron recomendados")
-            for _, row in conflicts.iterrows():
-                debug_log(f"   🚫 CONFLICTO: {row['title']} (MAL_ID: {row['MAL_ID']})")
-            return pd.DataFrame()
-
-        debug_log(f"✅ {len(recs)} recomendaciones generadas exitosamente")
-        debug_log("🎯 RECOMENDACIONES FINALES:")
-        for _, anime in recs.iterrows():
-            debug_log(f"   ✅ {anime['title']} (MAL_ID: {anime['MAL_ID']}) - Score: {anime['score']}")
-
-        return recs
-
-    except Exception as e:
-        debug_log(f"❌ Error en get_recommendations: {e}")
-        debug_log(f"❌ Traceback: {traceback.format_exc()}")
-        return pd.DataFrame()
 
 def get_anime_statistics(df):
-    """Calcula estadísticas del usuario"""
-    stats = {}
+    """
+    Retorna estadísticas generales del dataset de animes.
+    df: DataFrame con la información de animes.
+    """
     
-    if df.empty:
-        return stats
-        
-    try:
-        # Asegurar tipos de datos
-        df['user_score'] = pd.to_numeric(df['user_score'], errors='coerce').fillna(0)
-        
-        # Género más popular entre animes calificados
-        rated_anime = df[df['user_score'].notna() & (df['user_score'] > 0)]
-        if not rated_anime.empty and 'genres' in rated_anime.columns:
-            genre_counter = Counter()
-            # Procesar géneros
-            for genres in rated_anime['genres']:
-                if isinstance(genres, str):
-                    genre_list = genres.split()
-                    genre_counter.update(genre_list)
-            
-            most_watched_genre = genre_counter.most_common(1)
-            stats['most_watched_genre'] = most_watched_genre[0][0] if most_watched_genre else 'N/A'
-
-        # Puntuación promedio del usuario
-        if 'user_score' in df.columns:
-            avg_score = rated_anime['user_score'].mean()
-            stats['average_user_score'] = round(avg_score, 2) if pd.notna(avg_score) else 0.0
-
-        # Total de animes en la lista del usuario
-        user_anime_ids = get_user_anime_ids_from_source()
-        stats['total_anime_in_list'] = len(user_anime_ids)
-            
-        debug_log(f"📊 Estadísticas generadas: {stats}")
-        
-    except Exception as e:
-        debug_log(f"❌ Error calculando estadísticas: {e}")
-        stats['error'] = str(e)
+    # 1. Animes vistos por el usuario (score > 0)
+    watched_count = len(df[df['user_score'] > 0])
     
+    # 2. Puntuación promedio del usuario (solo si ha puntuado algo)
+    user_avg_score = df[df['user_score'] > 0]['user_score'].mean()
+    user_avg_score = round(user_avg_score, 2) if pd.notna(user_avg_score) else None
+
+    # 3. Género más visto
+    all_genres = [g for sublist in df[df['user_score'] > 0]['genres'] for g in sublist]
+    genre_counts = Counter(all_genres)
+    most_common_genre = genre_counts.most_common(1)[0][0] if genre_counts else None
+    
+    # 4. Studio más visto
+    all_studios = [s for sublist in df[df['user_score'] > 0]['studios'] for s in sublist]
+    studio_counts = Counter(all_studios)
+    most_common_studio = studio_counts.most_common(1)[0][0] if studio_counts else None
+    
+    # Cargar Blacklist
+    blocked_ids = set()
+    if os.path.exists(BLACKLIST_FILE):
+        try:
+            with open(BLACKLIST_FILE, 'r', encoding='utf-8') as f:
+                blocked_ids = set(json.load(f))
+        except Exception:
+            debug_log("Error cargando blacklist para estadísticas.")
+            
+    blacklist_count = len(blocked_ids)
+
+    stats = {
+        "user_watched_count": watched_count,
+        "user_avg_score": user_avg_score,
+        "most_common_genre": most_common_genre,
+        "most_common_studio": most_common_studio,
+        "blacklist_count": blacklist_count,
+        "total_animes_in_db": len(df),
+    }
     return stats
 
-def save_recommendations_to_json(recommendations_df, filename="recommendations.json"):
-    """Guarda las recomendaciones en formato JSON, usando MAL_ID de forma consistente"""
+def load_blacklist():
+    """Carga la blacklist desde el archivo JSON si existe."""
+    blocked_ids = set()
+    if os.path.exists(BLACKLIST_FILE):
+        try:
+            with open(BLACKLIST_FILE, 'r', encoding='utf-8') as f:
+                # Asegurarse de que los IDs sean enteros
+                blocked_ids = set(map(int, json.load(f)))
+        except Exception:
+            debug_log("Error cargando blacklist.")
+    return blocked_ids
+
+
+# === 2. LÓGICA DEL MODELO ===
+
+def run_recommendation_engine(df, num_recommendations=20):
+    """
+    Entrena el modelo de filtrado colaborativo basado en contenido
+    y devuelve las mejores recomendaciones para el usuario.
+    """
+    debug_log("Entrenando TF-IDF y calculando similitud coseno...")
+
+    # Crear la matriz TF-IDF
+    tfidf = TfidfVectorizer(stop_words='english')
+    # Ajustar a los features combinados
+    tfidf_matrix = tfidf.fit_transform(df['combined_features'].fillna(''))
+
+    # Aplicar TruncatedSVD para reducir la dimensionalidad (optimización)
+    n_components = min(50, tfidf_matrix.shape[1])
+    if n_components > 1:
+        svd = TruncatedSVD(n_components=n_components, random_state=42)
+        tfidf_matrix_reduced = svd.fit_transform(tfidf_matrix)
+        cosine_sim = linear_kernel(tfidf_matrix_reduced, tfidf_matrix_reduced)
+    else:
+        # Si la matriz es muy pequeña, usar el kernel lineal directamente
+        cosine_sim = linear_kernel(tfidf_matrix, tfidf_matrix)
+
+    debug_log(f"Matriz de similitud calculada. Shape: {cosine_sim.shape}")
+    
+    # Mapeo de títulos a índices del DataFrame
+    indices = pd.Series(df.index, index=df['title']).drop_duplicates()
+
+    # 1. Obtener los animes que el usuario ha puntuado (mejor puntuación)
+    user_rated_animes = df[df['user_score'] >= 7].sort_values(by='user_score', ascending=False)
+    
+    # Si el usuario no tiene animes puntuados alto, usar los vistos
+    if user_rated_animes.empty:
+        debug_log("⚠️ No hay animes con puntuación >= 7. Usando todos los animes vistos/en lista.")
+        user_rated_animes = df[df['my_status'] != 'NO_INTERACTUADO'].sort_values(by='user_score', ascending=False)
+
+    if user_rated_animes.empty:
+        debug_log("❌ No se encontraron animes para usar como base. Devolviendo los más populares.")
+        # Si no hay interacciones, usar un fallback (los 20 más populares con mejor score)
+        return df[df['my_status'] == 'NO_INTERACTUADO'].sort_values(by='averageScore', ascending=False).head(num_recommendations)
+
+    # 2. Generar recomendaciones
+    sim_scores = {}
+    
+    # Usar los 5 animes mejor puntuados por el usuario como "semilla"
+    seed_animes = user_rated_animes.head(5)
+
+    for idx_seed in seed_animes.index:
+        title = df.loc[idx_seed]['title']
+        if title not in indices:
+            continue
+            
+        # Obtener el índice de la matriz de similitud
+        idx = indices[title]
+        # Obtener las puntuaciones de similitud de ese anime con todos los demás
+        sim_scores_list = list(enumerate(cosine_sim[idx]))
+        # Sumar las puntuaciones de similitud para combinarlas
+        for i, score in sim_scores_list:
+            sim_scores[i] = sim_scores.get(i, 0) + score
+
+    # Eliminar las entradas de animes ya utilizados como semilla
+    for idx_seed in seed_animes.index:
+        sim_scores.pop(idx_seed, None)
+
+
+    # Ordenar los animes por la puntuación de similitud combinada
+    sorted_sim_scores = sorted(sim_scores.items(), key=lambda item: item[1], reverse=True)
+
+    # 3. Filtrar y construir la lista final
+    recommended_indices = []
+    
+    # Animes a excluir: ya interactuados por el usuario o en la blacklist
+    # Usar 'id' (AniList ID) para la exclusión
+    user_interacted_ids = df[df['my_status'] != 'NO_INTERACTUADO']['id'].tolist()
+    blocked_ids = load_blacklist()
+    
+    animes_to_exclude = set(user_interacted_ids) | blocked_ids
+    
+    debug_log(f"Excluyendo {len(user_interacted_ids)} animes vistos y {len(blocked_ids)} en blacklist.")
+
+    for i, score in sorted_sim_scores:
+        anime_id = df.iloc[i]['id']
+        if anime_id not in animes_to_exclude:
+            recommended_indices.append(i)
+        
+        if len(recommended_indices) >= num_recommendations:
+            break
+
+    # Obtener el DataFrame de las recomendaciones
+    recs_df = df.iloc[recommended_indices].copy()
+
+    # Si no se alcanzan las recomendaciones, añadir por popularidad
+    if len(recs_df) < num_recommendations:
+        debug_log(f"⚠️ Solo se encontraron {len(recs_df)} recomendaciones. Rellenando con los más populares no vistos.")
+        
+        # Obtener animes no interactuados y no recomendados aún
+        not_seen_and_not_recommended = df[
+            (~df['id'].isin(animes_to_exclude)) & 
+            (~df.index.isin(recs_df.index))
+        ]
+        
+        # Rellenar con los más populares (mejor averageScore)
+        filler_recs = not_seen_and_not_recommended.sort_values(by='averageScore', ascending=False).head(num_recommendations - len(recs_df))
+        recs_df = pd.concat([recs_df, filler_recs])
+
+    # 4. Post-procesamiento
+    recs_df = post_process_recommendations(recs_df)
+
+    return recs_df.head(num_recommendations)
+
+def post_process_recommendations(recs_df):
+    """Limpia y selecciona las columnas finales para la API."""
+    cols_to_keep = [
+        'id', 'title', 'genres', 'tags', 'averageScore', 
+        'type', 'episodes', 'siteUrl', 'studios', 'description'
+    ]
+    # Asegurar que solo se mantienen las columnas existentes
+    recs_df = recs_df[[c for c in cols_to_keep if c in recs_df.columns]].rename(columns={'id': 'AniListID'}).copy()
+    
+    # Limpiar columnas de lista para el JSON (convertir listas vacías a None)
+    for col in ['genres', 'tags', 'studios']:
+         recs_df[col] = recs_df[col].apply(lambda x: x if x else None)
+
+
+    return recs_df
+
+def save_recommendations_to_json(recs_df, stats):
+    """Guarda el DataFrame de recomendaciones y estadísticas en un archivo JSON temporal y devuelve el JSON."""
     try:
-        if recommendations_df.empty:
-            debug_log("⚠️ No hay recomendaciones para guardar")
-            return None
-
-        # 🔥 Validar que MAL_ID exista y sea int
-        recommendations_df['MAL_ID'] = recommendations_df['MAL_ID'].fillna(0).astype(int)
-
-        recommendations_json = []
-
-        for _, row in recommendations_df.iterrows():
-            clean_rec = {
-                'id': int(row['id']) if 'id' in row and pd.notna(row['id']) else 0,
-                'MAL_ID': int(row['MAL_ID']) if 'MAL_ID' in row and pd.notna(row['MAL_ID']) else 0,
-                'title': str(row['title']) if 'title' in row and pd.notna(row['title']) else 'Unknown',
-                'score': float(row['score']) if 'score' in row and pd.notna(row['score']) else 0.0,
-                'genres': str(row['genres']) if 'genres' in row and pd.notna(row['genres']) else '',
-                'description': str(row['description']) if 'description' in row and pd.notna(row['description']) else '',
-                'type': str(row['type']) if 'type' in row and pd.notna(row['type']) else 'Unknown',
-                'episodes': int(row['episodes']) if 'episodes' in row and pd.notna(row['episodes']) else 0,
-                'siteUrl': str(row['siteUrl']) if 'siteUrl' in row and pd.notna(row['siteUrl']) else '',
-                'studios': str(row['studios']) if 'studios' in row and pd.notna(row['studios']) else ''
-            }
-            recommendations_json.append(clean_rec)
-
-        # Generar estadísticas
-        stats = generate_statistics()
-
-        # Guardar JSON final
-        output_path = os.path.join(DATA_DIR, filename)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump({
-                'timestamp': datetime.now().isoformat(),
-                'count': len(recommendations_json),
-                'statistics': stats,
-                'recommendations': recommendations_json
-            }, f, indent=2, ensure_ascii=False)
-
-        debug_log(f"✅ {len(recommendations_json)} recomendaciones guardadas en: {output_path}")
-
-        # 🔥 Verificación final: asegurar que no se guarden animes ya vistos
-        user_anime_ids = get_user_anime_ids_from_source()
-        conflicts = [rec for rec in recommendations_json if rec['MAL_ID'] in user_anime_ids]
-        if conflicts:
-            debug_log(f"❌ ALERTA: Se están guardando {len(conflicts)} animes ya vistos: {[c['title'] for c in conflicts]}")
-            return None
-
-        return output_path
-
+        if recs_df.empty:
+             raise Exception("DataFrame de recomendaciones está vacío.")
+        
+        # Renombrar 'AniListID' a 'id' para la respuesta final del frontend
+        recs_df = recs_df.rename(columns={'AniListID': 'id'}) 
+        
+        recs_json = {
+            'status': 'success',
+            'timestamp': datetime.now().isoformat(),
+            'count': len(recs_df),
+            'statistics': stats,
+            'recommendations': json.loads(recs_df.to_json(orient='records')), 
+        }
+        
+        # Devolver el objeto directamente, no necesitamos guardar a disco en este flujo
+        return json.dumps(recs_json, indent=4, ensure_ascii=False)
+        
     except Exception as e:
-        debug_log(f"❌ Error guardando recomendaciones: {e}")
-        debug_log(f"❌ Traceback: {traceback.format_exc()}")
-        return None
+        debug_log(f"❌ Error al serializar las recomendaciones a JSON: {e}")
+        return json.dumps({
+            'status': 'error',
+            'message': f'Error al serializar recomendaciones: {str(e)}',
+            'timestamp': datetime.now().isoformat()
+        })
 
 
-def generate_statistics():
-    """Genera estadísticas del sistema (función de respaldo)"""
+def main_with_json(username):
+    """
+    Función principal para el pipeline de la API. Carga, entrena y devuelve JSON.
+    """
     try:
+        debug_log(f"Iniciando entrenamiento para el usuario: {username}")
+        
         df = load_data()
         stats = get_anime_statistics(df)
+        recs_df = run_recommendation_engine(df)
         
-        # Agregar información adicional
-        stats['total_animes_catalog'] = len(df)
-        stats['catalog_loaded'] = True
-        
-        debug_log("📊 Estadísticas del sistema generadas")
-        return stats
-        
-    except Exception as e:
-        debug_log(f"❌ Error generando estadísticas: {e}")
-        return {
-            'total_animes_catalog': 0,
-            'error': str(e)
-        }
-
-def main_with_json():
-    """Función principal que guarda resultados en JSON"""
-    try:
-        debug_log("🚀 Iniciando generación de recomendaciones...")
-        
-        df = load_data() 
-        debug_log(f"✅ Dataset cargado: {len(df)} filas.")
-        
-        debug_log("🔧 Entrenando modelo...")
-        sim = preprocess_data(df)
-        
-        if sim is None:
-            debug_log("❌ No se pudo entrenar el modelo")
-            return None
-
-        recs = get_recommendations(df, sim)
-        
-        if recs.empty:
+        if recs_df.empty:
             debug_log("❌ No se generaron recomendaciones")
-            return None
+            return json.dumps({
+                'status': 'error',
+                'message': 'No se generaron recomendaciones para este usuario',
+                'timestamp': datetime.now().isoformat()
+            })
             
-        output_file = save_recommendations_to_json(recs)
+        output_json_str = save_recommendations_to_json(recs_df, stats)
         
-        debug_log(f"🎯 {len(recs)} recomendaciones generadas exitosamente")
-        return output_file
+        return output_json_str
         
     except Exception as e:
         debug_log(f"❌ Error en main_with_json: {e}")
         debug_log(f"❌ Traceback: {traceback.format_exc()}")
-        return None
+        return json.dumps({
+            'status': 'error',
+            'message': f'Error fatal del pipeline: {str(e)}',
+            'timestamp': datetime.now().isoformat()
+        })
+
 
 if __name__ == "__main__":
-    # Para testing local
-    result_file = main_with_json()
-    if result_file:
-        debug_log(f"✅ Proceso completado: {result_file}")
-    else:
-        debug_log("❌ Proceso falló")
+    # Bloque de ejecución para pruebas locales
+    try:
+        if len(sys.argv) > 1:
+            TEST_USERNAME = sys.argv[1]
+        else:
+            TEST_USERNAME = "SrAlex16" # Usuario de prueba por defecto
+            
+        print(f"Ejecutando train_model.py en modo local para {TEST_USERNAME}")
+        
+        # Para pruebas locales, primero necesitamos asegurar que los archivos de datos existan
+        # Esto requiere haber ejecutado antes:
+        # 1. python src/data/download_mal_list.py SrAlex16
+        # 2. python src/data/fetch_datasets.py
+        # 3. python src/data/prepare_data.py
+        
+        result_json_str = main_with_json(TEST_USERNAME)
+        if result_json_str:
+            print("--- RESULTADO DEL MODELO (JSON) ---")
+            print(result_json_str)
+            print("-----------------------------------")
+            
+    except Exception as e:
+        print(f"Error en la ejecución local: {e}")
         sys.exit(1)
