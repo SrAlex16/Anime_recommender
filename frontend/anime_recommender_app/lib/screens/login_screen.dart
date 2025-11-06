@@ -1,5 +1,3 @@
-// lib/screens/login_screen.dart (Contenido completo - Asegúrate de reemplazar la función de navegación)
-
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -27,38 +25,16 @@ class _LoginScreenState extends State<LoginScreen>
   static const int _maxSuggestions = 5;
 
   late AnimationController _drawerController;
-  bool _isDragging = false; // Para detectar si está deslizando
+  bool _isDragging = false;
 
   final Map<String, Map<String, String>> _fallback = {
     'es': {
       'clear_data': 'Borrar datos',
       'data_cleared': 'Datos borrados correctamente',
-      'enter_username': 'Introduce tu nombre de usuario de MyAnimeList',
-      'get_results': 'Obtener Resultados',
-      'save_user': 'Guardar usuario',
-      'login_failed': 'Fallo en la conexión/API',
-      'login_error': 'No se pudo conectar con el servicio o la API devolvió un error. Revisa los logs de la consola.',
-      'user_saved': 'Usuario guardado',
-      'username_empty': 'El nombre de usuario no puede estar vacío.',
-      'suggestions_title': 'Usuarios Recientes',
-      'language_label': 'Español',
-      'fetching_recommendations': 'Generando recomendaciones...',
-      'generating_message': 'Esto puede tardar unos minutos, por favor sé paciente mientras se entrena el modelo...',
     },
     'en': {
       'clear_data': 'Clear data',
       'data_cleared': 'Data cleared successfully',
-      'enter_username': 'Enter your MyAnimeList username',
-      'get_results': 'Get Results',
-      'save_user': 'Save User',
-      'login_failed': 'Connection/API Failed',
-      'login_error': 'Could not connect to the service or the API returned an error. Check console logs.',
-      'user_saved': 'User saved',
-      'username_empty': 'Username cannot be empty.',
-      'suggestions_title': 'Recent Users',
-      'language_label': 'English',
-      'fetching_recommendations': 'Generating recommendations...',
-      'generating_message': 'This may take a few minutes, please be patient while the model is trained...',
     },
   };
 
@@ -69,421 +45,446 @@ class _LoginScreenState extends State<LoginScreen>
     _loadSavedUsers();
     _drawerController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 250),
+      duration: const Duration(milliseconds: 280),
     );
-  }
-
-  // Traducción simple basada en el idioma actual
-  String _translate(String key) {
-    return _localizedTexts[_language]?[key] ?? _fallback[_language]?[key] ?? _fallback['en']?[key] ?? key;
   }
 
   Future<void> _loadLanguage() async {
     final prefs = await SharedPreferences.getInstance();
+    final savedLang = prefs.getString('language') ?? 'es';
+    final jsonStr = await rootBundle.loadString('assets/localization.json');
+    final jsonData = json.decode(jsonStr);
     setState(() {
-      _language = prefs.getString('language') ?? 'es';
+      _language = savedLang;
+      _localizedTexts = jsonData;
     });
-    await _loadLocalizedTexts(_language);
-  }
-
-  Future<void> _loadLocalizedTexts(String lang) async {
-    try {
-      final jsonString = await rootBundle.loadString('assets/i18n/$lang.json');
-      setState(() {
-        _localizedTexts = json.decode(jsonString);
-      });
-    } catch (e) {
-      print('Error loading localization for $lang: $e');
-      _localizedTexts = _fallback;
-    }
   }
 
   Future<void> _toggleLanguage() async {
-    final newLanguage = (_language == 'es') ? 'en' : 'es';
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('language', newLanguage);
-    await _loadLocalizedTexts(newLanguage);
+    final newLang = _language == 'es' ? 'en' : 'es';
+    await prefs.setString('language', newLang);
+
+    final jsonStr = await rootBundle.loadString('assets/localization.json');
+    final jsonData = json.decode(jsonStr);
     setState(() {
-      _language = newLanguage;
+      _language = newLang;
+      _localizedTexts = jsonData;
     });
   }
 
-  // --- Lógica de usuarios guardados ---
+  String tr(String key) {
+    return _localizedTexts[_language]?[key] ??
+        _localizedTexts['es']?[key] ??
+        key;
+  }
+
+  String trOrFallback(String key) {
+    final fromJson = _localizedTexts[_language]?[key];
+    if (fromJson != null) return fromJson;
+    if (_fallback[_language]?[key] != null) return _fallback[_language]![key]!;
+    return _localizedTexts['es']?[key] ?? _fallback['es']?[key] ?? key;
+  }
+
   Future<void> _loadSavedUsers() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _savedUsers = prefs.getStringList('saved_users') ?? [];
+      _isUserSaved = _savedUsers.isNotEmpty;
     });
-    if (_savedUsers.isNotEmpty) {
-      _usernameController.text = _savedUsers.first;
-    }
+    ApiService.clearCache();
   }
 
   Future<void> _saveUser(String username) async {
     final prefs = await SharedPreferences.getInstance();
-    _savedUsers.remove(username); // Eliminar si ya existe
-    _savedUsers.insert(0, username); // Insertar al principio
-    if (_savedUsers.length > _maxSuggestions) {
-      _savedUsers = _savedUsers.sublist(0, _maxSuggestions);
+    List<String> currentUsers = prefs.getStringList('saved_users') ?? [];
+
+    if (_isUserSaved) {
+      currentUsers.remove(username);
+      currentUsers.insert(0, username);
+      if (currentUsers.length > _maxSuggestions) {
+        currentUsers = currentUsers.sublist(0, _maxSuggestions);
+      }
+      await prefs.setStringList('saved_users', currentUsers);
+    } else {
+      await prefs.remove('saved_users');
+      currentUsers.clear();
     }
-    await prefs.setStringList('saved_users', _savedUsers);
+
     setState(() {
-      _isUserSaved = true;
+      _savedUsers = currentUsers;
     });
-    // Mostrar snackbar de éxito
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_translate('user_saved'))),
-      );
-    }
   }
 
-  // --- Lógica de navegación y API ---
-  void _navigateToRecommendations({required String username, required Map<String, dynamic> apiResult}) {
-    // 💡 SOLUCIÓN CRÍTICA: Extraer los datos de forma segura
-    // Usar ?? [] y ?? {} para evitar el _TypeError al pasar null a un campo no nulo.
-    final List<dynamic> recommendations = apiResult['recommendations'] as List<dynamic>? ?? [];
-    final Map<String, dynamic> statistics = apiResult['statistics'] as Map<String, dynamic>? ?? {};
+  Future<void> _clearAllData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    await ApiService.clearCache();
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => AnimeRecommendationsScreen(
-          // Pasar las variables que ya están garantizadas como no nulas
-          recommendations: recommendations,
-          statistics: statistics, 
-          tr: (key) => _translate(key),
-        ),
-      ),
+    setState(() {
+      _savedUsers = [];
+      _isUserSaved = false;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(trOrFallback('data_cleared'))),
     );
   }
 
-
-  Future<void> _handleLogin() async {
+  void _validateAndNavigate() async {
     final username = _usernameController.text.trim();
     if (username.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_translate('username_empty'))),
+        SnackBar(content: Text(tr('login_screen_error_empty'))),
       );
       return;
     }
 
-    // 1. Mostrar diálogo de carga
+    _usernameFocus.unfocus();
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Text(_translate('fetching_recommendations')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 15),
-            Text(_translate('generating_message')),
-          ],
+      barrierColor: Colors.black54,
+      builder: (BuildContext dialogContext) => WillPopScope(
+        onWillPop: () async => false,
+        child: Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(width: 20),
+                Flexible(
+                  child: Text(
+                    tr('login_screen_loading'),
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
 
-    // 2. Llamar a la API
     try {
-      final apiResult = await PythonRunner.runTrainModel(username: username);
-
-      // 3. Cerrar diálogo de carga y navegar
-      if (mounted) {
-        Navigator.of(context).pop(); // Cerrar el diálogo
-        _navigateToRecommendations(username: username, apiResult: apiResult);
+      final cachedData = await ApiService.loadDataFromCache(username);
+      if (cachedData != null) {
+        await _saveUser(username);
+        _navigateToRecommendations(username, cachedData);
+        return;
       }
 
+      final result = await PythonRunner.runTrainModel(username: username);
+      await _saveUser(username);
+      _navigateToRecommendations(username, result);
     } catch (e) {
-      print('❌ ERROR EN _handleLogin: $e');
-      // 4. Cerrar diálogo de carga y mostrar error
-      if (mounted) {
-        Navigator.of(context).pop(); // Cerrar el diálogo
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${_translate('login_failed')}: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    }
-  }
-  // --- Fin Lógica de navegación y API ---
-
-
-  // --- OTRAS FUNCIONES ---
-  Future<void> _clearAllData() async {
-    final prefs = await SharedPreferences.getInstance();
-    // Limpiar caché de recomendaciones y usuarios guardados
-    await ApiService.clearCache();
-    await prefs.remove('saved_users');
-    await prefs.remove('language');
-
-    setState(() {
-      _savedUsers = [];
-      _usernameController.clear();
-      _isUserSaved = false;
-      _language = 'es';
-    });
-
-    if (mounted) {
+      if (Navigator.of(context).canPop()) Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_translate('data_cleared'))),
+        SnackBar(content: Text('${tr('login_screen_error_api')} $e')),
       );
     }
   }
 
+  void _navigateToRecommendations(String username, Map<String, dynamic> data) {
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => AnimeRecommendationsScreen(
+          recommendations: data['recommendations'] as List<dynamic>,
+          statistics: data['statistics'] as Map<String, dynamic>,
+          tr: tr,
+        ),
+      ),
+    );
+  }
 
-  // --- WIDGETS ---
-  // ... (El resto del código de build() y widgets del drawer, etc., sigue igual) ...
   @override
   Widget build(BuildContext context) {
+    final keyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final drawerWidth = screenWidth * 0.5;
+    const double edgeDragWidth = 200.0; // zona táctil para deslizar
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Anime Recommender'),
-        backgroundColor: Colors.blueGrey[900],
-        foregroundColor: Colors.white,
-      ),
-      backgroundColor: Colors.blueGrey[800],
-      endDrawer: Builder(
-        builder: (context) {
-          return GestureDetector(
-            onHorizontalDragStart: (details) {
-              if (details.localPosition.dx > 200) {
-                _isDragging = true;
-              }
-            },
-            onHorizontalDragUpdate: (details) {
-              if (_isDragging && _drawerController.value > 0) {
-                // Controlar el deslizamiento del drawer
-                final dragExtent = details.primaryDelta! / 300; // Normalizar el valor
-                _drawerController.value -= dragExtent;
-              }
-            },
-            onHorizontalDragEnd: (details) {
-              if (_isDragging) {
-                // Si la velocidad es alta, cerrar/abrir, sino restaurar
-                if (details.velocity.pixelsPerSecond.dx < -500) {
-                  _drawerController.forward();
-                } else if (details.velocity.pixelsPerSecond.dx > 500) {
-                  _drawerController.reverse();
-                } else {
-                  if (_drawerController.value > 0.5) {
-                    _drawerController.forward();
-                  } else {
-                    _drawerController.reverse();
-                  }
-                }
-              }
-              _isDragging = false;
-            },
-            child: Drawer(
-              child: Container(
-                color: Colors.blueGrey[900],
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 40.0),
-                  child: ListView(
-                    padding: EdgeInsets.zero,
-                    children: [
-                      // Encabezado del Drawer
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text(
-                          'Ajustes',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const Divider(color: Colors.white38),
-                      // Opción Borrar datos
-                      ListTile(
-                        leading: const Padding(
-                          padding: EdgeInsets.only(left: 4.0),
-                          child: Icon(Icons.delete_forever, color: Colors.redAccent),
-                        ),
-                        title: Text(
-                          _translate('clear_data'),
-                          style: const TextStyle(
-                            color: Colors.redAccent,
-                            fontSize: 18,
-                          ),
-                        ),
-                        onTap: () async {
-                          _drawerController.reverse();
-                          await Future.delayed(const Duration(milliseconds: 200));
-                          await _clearAllData();
-                        },
-                      ),
-                      const Divider(color: Colors.white38),
-                      // Opción Cambiar idioma
-                      ListTile(
-                        leading: const Padding(
-                          padding: EdgeInsets.only(left: 4.0),
-                          child: Icon(Icons.language, color: Colors.white),
-                        ),
-                        title: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            (_language == 'es')
-                                ? (_localizedTexts['en']?['language_label'] ?? 'English')
-                                : (_localizedTexts['es']?['language_label'] ?? 'Español'),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.visible,
-                          ),
-                        ),
-                        onTap: () async {
-                          _drawerController.reverse();
-                          await Future.delayed(const Duration(milliseconds: 200));
-                          await _toggleLanguage();
-                        },
-                      ),
-                    ],
-                  ),
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          // Fondo con color base + imagen
+          Positioned.fill(
+            child: Container(
+              color: const Color(0xFF3E497A),
+              child: AnimatedOpacity(
+                opacity: keyboardVisible ? 0.7 : 1.0,
+                duration: const Duration(milliseconds: 300),
+                child: Image.asset(
+                  'assets/background_img.png',
+                  fit: BoxFit.cover,
                 ),
               ),
             ),
-          );
-        },
-      ),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Título principal
-              const Text(
-                'Anime Recommender',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  shadows: [
-                    Shadow(
-                      blurRadius: 10.0,
-                      color: Colors.black54,
-                      offset: Offset(2.0, 2.0),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 40),
-              // Campo de texto
-              Autocomplete<String>(
-                optionsBuilder: (TextEditingValue textEditingValue) {
-                  if (textEditingValue.text.isEmpty) {
-                    // Mostrar sugerencias de usuarios guardados
-                    return _savedUsers.take(_maxSuggestions);
-                  }
-                  // Filtrar usuarios guardados
-                  return _savedUsers.where((String option) {
-                    return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                  }).take(_maxSuggestions);
-                },
-                fieldViewBuilder: (context, textController, focusNode, onFieldSubmitted) {
-                  // NO hacemos _usernameController.value = ... (ya está enlazado)
-                  // NO hacemos _usernameFocus.value = ... (FocusNode no tiene setter 'value')
-                  
-                  // Simplemente retornamos el TextField usando los controladores/nodos provistos
-                  return TextField(
-                    controller: textController, // ✅ Usar el textController provisto
-                    focusNode: focusNode,     // ✅ Usar el focusNode provisto
-                    decoration: InputDecoration(
-                      hintText: _translate('enter_username'),
-                      // ... (resto de la decoración) ...
-                    ),
-                    style: const TextStyle(color: Colors.white),
-                    onSubmitted: (_) => _handleLogin(),
-                  );
-                },
-                
-                onSelected: (String selection) { /* ... */ },
-              ),
-              const SizedBox(height: 20),
-              // Botón de Login
-              ElevatedButton.icon(
-                onPressed: _handleLogin,
-                icon: const Icon(Icons.recommend),
-                label: Text(
-                  _translate('get_results'),
-                  style: const TextStyle(fontSize: 18),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 5,
-                ),
-              ),
-              const SizedBox(height: 20),
-              // Botón de Guardar Usuario
-              OutlinedButton.icon(
-                onPressed: () {
-                  final username = _usernameController.text.trim();
-                  if (username.isNotEmpty) {
-                    _saveUser(username);
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(_translate('username_empty'))),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.bookmark_border),
-                label: Text(
-                  _translate('save_user'),
-                  style: const TextStyle(fontSize: 16),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.white70),
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              // Sugerencias de usuarios (si las hay)
-              if (_savedUsers.length > 1) ...[
-                Text(
-                  _translate('suggestions_title'),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70, fontSize: 14, fontStyle: FontStyle.italic),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8.0,
-                  runSpacing: 4.0,
-                  children: _savedUsers.sublist(1).map((user) {
-                    return ActionChip(
-                      label: Text(user, style: const TextStyle(color: Colors.white)),
-                      backgroundColor: Colors.blueGrey[700],
-                      onPressed: () {
-                        _usernameController.text = user;
-                        _handleLogin();
-                      },
-                    );
-                  }).toList(),
-                ),
-              ],
-            ],
           ),
-        ),
+
+          // Contenido principal
+          SafeArea(
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 32.0, vertical: 16),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Parte superior
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 20),
+                      Text(
+                        tr('login_screen_user_label'),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      TextField(
+                        controller: _usernameController,
+                        focusNode: _usernameFocus,
+                        textAlign: TextAlign.start,
+                        style:
+                            const TextStyle(color: Color(0xFF3E497A), fontSize: 18),
+                        decoration: InputDecoration(
+                          hintText: tr('login_screen_placeholder'),
+                          hintStyle:
+                              TextStyle(color: const Color(0xFF3E497A).withOpacity(0.6)),
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding:
+                              const EdgeInsets.symmetric(vertical: 15, horizontal: 15),
+                        ),
+                        onSubmitted: (_) => _validateAndNavigate(),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        children: [
+                          Checkbox(
+                            value: _isUserSaved,
+                            onChanged: (bool? newValue) {
+                              setState(() {
+                                _isUserSaved = newValue ?? false;
+                              });
+                            },
+                            activeColor: Colors.white,
+                            checkColor: const Color(0xFF3E497A),
+                          ),
+                          Text(
+                            tr('login_screen_save_user'),
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+
+                  // Parte inferior: botón
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 40),
+                    child: ElevatedButton(
+                      onPressed: _validateAndNavigate,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.9),
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 60, vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                      ),
+                      child: Text(
+                        tr('login_screen_button'),
+                        style: const TextStyle(
+                          color: Color(0xFF3E497A),
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Zona táctil invisible en el borde izquierdo (solo para deslizar)
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: edgeDragWidth,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragStart: (details) {
+                setState(() {
+                  _isDragging = true;
+                });
+              },
+              onHorizontalDragUpdate: (details) {
+                final delta = details.delta.dx;
+                if (delta > 0) { // Solo si desliza hacia la derecha
+                  final newValue =
+                      (_drawerController.value + delta / drawerWidth).clamp(0.0, 1.0);
+                  _drawerController.value = newValue;
+                }
+              },
+              onHorizontalDragEnd: (details) {
+                setState(() {
+                  _isDragging = false;
+                });
+                if (_drawerController.value > 0.3) {
+                  _drawerController.forward();
+                } else {
+                  _drawerController.reverse();
+                }
+              },
+            ),
+          ),
+
+          // Fondo semitransparente al abrir el menú
+          AnimatedBuilder(
+            animation: _drawerController,
+            builder: (_, __) {
+              final t = _drawerController.value;
+              if (t <= 0.0) return const SizedBox.shrink();
+              return Positioned.fill(
+                child: GestureDetector(
+                  onTap: () => _drawerController.reverse(),
+                  child: Container(
+                    color: Colors.black.withOpacity(0.4 * t),
+                  ),
+                ),
+              );
+            },
+          ),
+
+          // Drawer manual (mitad de pantalla, responsive text)
+          AnimatedBuilder(
+            animation: _drawerController,
+            builder: (_, __) {
+              final value = _drawerController.value;
+              if (value <= 0.0) return const SizedBox.shrink();
+              
+              return Positioned(
+                left: -drawerWidth + drawerWidth * value,
+                top: 0,
+                bottom: 0,
+                width: drawerWidth,
+                child: GestureDetector(
+                  onHorizontalDragUpdate: (details) {
+                    final delta = details.delta.dx;
+                    if (delta < 0) { // Solo si desliza hacia la izquierda
+                      final newValue =
+                          (_drawerController.value + delta / drawerWidth).clamp(0.0, 1.0);
+                      _drawerController.value = newValue;
+                    }
+                  },
+                  onHorizontalDragEnd: (details) {
+                    if (_drawerController.value < 0.7) {
+                      _drawerController.reverse();
+                    } else {
+                      _drawerController.forward();
+                    }
+                  },
+                  child: Container(
+                    color: const Color(0xFF3E497A),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 60),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(left: 10.0),
+                          child: Text(
+                            tr('app_title'),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const Divider(color: Colors.white54, height: 40),
+                        
+                        // 🗑️ Borrar datos
+                        ListTile(
+                          horizontalTitleGap: 0,
+                          leading: const Padding(
+                            padding: EdgeInsets.only(left: 4.0),
+                            child: Icon(Icons.delete, color: Colors.white),
+                          ),
+                          title: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              trOrFallback('clear_data'),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.visible,
+                            ),
+                          ),
+                          onTap: () async {
+                            _drawerController.reverse();
+                            await Future.delayed(const Duration(milliseconds: 200));
+                            await _clearAllData();
+                          },
+                        ),
+
+                        // 🌐 Cambiar idioma
+                        ListTile(
+                          horizontalTitleGap: 0,
+                          leading: const Padding(
+                            padding: EdgeInsets.only(left: 4.0),
+                            child: Icon(Icons.language, color: Colors.white),
+                          ),
+                          title: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              (_language == 'es')
+                                  ? (_localizedTexts['en']?['language_label'] ?? 'English')
+                                  : (_localizedTexts['es']?['language_label'] ?? 'Español'),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.visible,
+                            ),
+                          ),
+                          onTap: () async {
+                            _drawerController.reverse();
+                            await Future.delayed(const Duration(milliseconds: 200));
+                            await _toggleLanguage();
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
