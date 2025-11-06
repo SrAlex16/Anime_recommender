@@ -73,3 +73,12 @@ def add_to_blacklist():
 def get_blacklist():
     blocked_animes = load_blacklist()
     return jsonify({"blocked_animes": list(blocked_animes)}), 200
+
+def get_blacklist_last_modified_time():
+    """Retorna el timestamp (tiempo de última modificación) del archivo de blacklist."""
+    # Retorna 0.0 si el archivo aún no existe.
+    if os.path.exists(BLACKLIST_FILE):
+        # Usamos os.path.getmtime que retorna el timestamp UNIX
+        return os.path.getmtime(BLACKLIST_FILE)
+    # Si el archivo no existe (no hay blacklist), la clave de caché es constante.
+    return 0.0

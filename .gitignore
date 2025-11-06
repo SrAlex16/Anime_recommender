@@ -1,3 +1,5 @@
+# .gitignore optimizado para Back-end (Python) y Front-end (Flutter SOLO Android)
+
 # =========================
 # Entorno Virtual Python
 # =========================
@@ -8,26 +10,23 @@ env/
 .env
 
 # =========================
-# Archivos de caché y compilados
+# Archivos de caché y compilados Python
 # =========================
 # Cachés de Python
 __pycache__/
 *.pyc
 # Archivos de caché de pytest
 .pytest_cache/
-# Archivos específicos de PyCharm o VSCode
+# Archivos específicos de IDEs
 .idea/
 .vscode/
 
 # =========================
-# Archivos de Datos Generados
-# CRÍTICO: No subir datasets grandes, logs ni el input XML/JSON
+# Archivos de Datos Generados (Backend)
+# CRÍTICO: No subir datasets, logs ni archivos de entrada/salida temporales
 # =========================
-data/*.csv
-data/*.json
-data/*.log
-data/*.xml
-
+# Ignorar todos los archivos generados dentro de la carpeta 'data'
+data/
 # Archivos de respaldo temporales creados por los tests
 *_TEST_BACKUP
 
@@ -42,6 +41,36 @@ src/model/*.h5
 src/model/*.joblib
 
 # =========================
-# Frontend Build Files
+# Frontend Flutter (frontend/anime_recommender_app/)
+# Excluir builds, caché y configuraciones que no son necesarias para el repo.
 # =========================
-frontend/
+# Directorios de build
+/frontend/**/build/
+/frontend/**/.dart_tool/
+
+# Archivos de caché y dependencias de Dart
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# --- Específico de Android ---
+# Ignorar la configuración local, que varía por máquina.
+/frontend/**/android/local.properties 
+# Ignorar el caché y el directorio de build de Gradle
+/frontend/**/android/.gradle
+/frontend/**/android/app/build
+
+# --- Ignorar otras plataformas para un repositorio de Android puro ---
+# Ignorar configuraciones de iOS y macOS
+/frontend/**/ios/
+/frontend/**/macos/
+# Ignorar compilaciones de Linux y Web
+/frontend/**/linux/
+/frontend/**/web/
+/frontend/**/windows/
+
+
+# Archivos temporales comunes
+*~
+*.log

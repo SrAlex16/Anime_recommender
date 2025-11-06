@@ -1,4 +1,5 @@
 # src/api/app.py
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import subprocess
@@ -7,8 +8,8 @@ import os
 import json
 from datetime import datetime
 
-# ✅ Importar blueprint de blacklist
-from src.api.blacklist import blacklist_bp
+# ✅ Importar blueprint de blacklist Y la nueva función de soporte
+from src.api.blacklist import blacklist_bp, get_blacklist_last_modified_time 
 
 def create_app():
     app = Flask(__name__)
@@ -18,15 +19,18 @@ def create_app():
     app.register_blueprint(blacklist_bp)
 
     # Configurar paths - desde src/api/
-    # Sube dos niveles para ir a la raíz del proyecto
     ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     sys.path.insert(0, ROOT_DIR)
+    
+    # 💡 CACHÉ GLOBAL EN MEMORIA (se limpia si el proceso de Render se reinicia)
+    # Almacenaremos {cache_key: result_data}
+    recommendations_cache = {} 
 
     # ---------------- Pipeline Recommendations ----------------
     def run_pipeline(username):
         """Ejecutar el pipeline completo de recomendación"""
+        # ... (CÓDIGO run_pipeline EXISTENTE - NO CAMBIA)
         try:
-            # Llama al script orquestador que gestiona la descarga y el modelo
             script_path = os.path.join(ROOT_DIR, 'src', 'services', 'get_recommendations_for_user.py')
             if not os.path.exists(script_path):
                 return None, f"Script no encontrado: {script_path}"
@@ -39,70 +43,81 @@ def create_app():
                 [sys.executable, '-u', script_path, username],
                 capture_output=True, text=True, timeout=300, cwd=ROOT_DIR, env=env
             )
-
-            # El script de python devuelve un JSON string en su stdout
-            output = result.stdout.strip()
             
+            # 🛑 CRÍTICO: Si hay un código de retorno de error (no 0)
             if result.returncode != 0:
-                error_message = f"Pipeline falló con código {result.returncode}."
-                if result.stderr:
-                     error_message += f" STDERR: {result.stderr.strip()[:500]}"
-                return None, error_message
+                error_msg = f"Error en el script Python (Código {result.returncode}). STDERR: {result.stderr}"
+                # Intentamos parsear la salida JSON de error si existe, si no, devolvemos el mensaje genérico
+                try:
+                    # El script debería haber impreso un JSON de error al stdout
+                    error_data = json.loads(result.stdout) 
+                    # Devolvemos el mensaje del JSON que el script intentó generar
+                    return None, error_data.get('message', error_msg)
+                except json.JSONDecodeError:
+                    # Si stdout no es JSON, es porque otra cosa falló e imprimió basura
+                    # Devolvemos el stderr completo, que es más informativo
+                    return None, f"El pipeline falló. Output no JSON. STDERR: {result.stderr.strip()}"
+
+            # Si returncode es 0, asumimos que stdout es JSON de éxito
+            return result.stdout, None
             
-            # El output debe ser un JSON
-            try:
-                # El script está diseñado para imprimir un JSON final
-                return json.loads(output), None
-            except json.JSONDecodeError:
-                error_message = f"Error al decodificar JSON de salida. STDOUT: {output[:500]}"
-                if result.stderr:
-                    error_message += f" STDERR: {result.stderr.strip()[:500]}"
-                return None, error_message
-
-
         except subprocess.TimeoutExpired:
-            return None, "Timeout: El pipeline de recomendación tardó demasiado (más de 5 minutos)."
+            return None, "El proceso de generación de recomendaciones excedió el tiempo límite (300s)."
         except Exception as e:
-            return None, f"Error inesperado al ejecutar el pipeline: {str(e)}"
+            return None, f"Error interno en la ejecución del pipeline: {str(e)}"
 
     @app.route('/api/recommendations/<username>', methods=['GET'])
-    def get_recommendations(username):
-        if not username:
+    def get_recommendations_route(username):
+        
+        # 1. GENERAR CLAVE DE CACHÉ 💡
+        try:
+            # El timestamp de la blacklist será la parte variable de la clave
+            blacklist_ts = get_blacklist_last_modified_time() 
+        except Exception:
+            blacklist_ts = 0.0
+            
+        cache_key = f"{username}_{blacklist_ts}"
+
+        # 2. VERIFICAR CACHÉ 💡
+        if cache_key in recommendations_cache:
+            # CASO 1: Éxito (Blacklist no modificada) -> Retorno INSTANTÁNEO
+            result = recommendations_cache[cache_key].copy()
+            result['message'] = "Cargado desde caché de API (Blacklist no modificada)."
+            return jsonify(result), 200
+
+        # 3. EJECUTAR PIPELINE COMPLETO
+        # CASO 2: Blacklist modificada o primera ejecución -> Ejecutar proceso pesado
+        app.logger.info(f"Cache miss para {username}. Ejecutando pipeline completo (Timeout riesgo alto)...")
+        result_json_str, error_msg = run_pipeline(username)
+
+        if error_msg:
             return jsonify({
                 "status": "error",
-                "message": "El nombre de usuario es requerido.",
-                "timestamp": datetime.now().isoformat()
-            }), 400
-
-        print(f"⚙️ Iniciando pipeline para usuario: {username}")
-        recommendations_data, error = run_pipeline(username)
-
-        if error:
-            print(f"❌ Error en la recomendación: {error}")
-            return jsonify({
-                "status": "error",
-                "message": error,
+                "message": error_msg,
                 "timestamp": datetime.now().isoformat()
             }), 500
-
-        # El JSON ya viene estructurado con 'status', 'recommendations', 'statistics', etc.
-        return jsonify(recommendations_data), 200
-
+        
+        try:
+            result_data = json.loads(result_json_str)
+        except json.JSONDecodeError:
+            return jsonify({
+                "status": "error",
+                "message": f"Error interno: La salida del modelo no es JSON válida.",
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+        # 4. GUARDAR EN CACHÉ antes de devolver el resultado 💡
+        if result_data.get('status') == 'success':
+            # Guardamos el resultado con la nueva clave de caché
+            recommendations_cache[cache_key] = result_data 
+            app.logger.info(f"Resultado de {username} guardado en caché con clave: {cache_key}")
+            
+        return jsonify(result_data), 200
 
     @app.route('/api/health')
     def health_check():
-        """Verificación de salud simple"""
-        try:
-            # Verificar un módulo crítico, por ejemplo, pandas
-            import pandas as pd
-        except ImportError as e:
-            return jsonify({
-                "status": "error",
-                "message": f"Dependencia crítica no encontrada: {e}",
-                "timestamp": datetime.now().isoformat()
-            }), 500
-
-        # Verificar si existen directorios críticos
+        # ... (CÓDIGO EXISTENTE)
+        ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         critical_dirs = ['data', os.path.join('src', 'model'), os.path.join('src', 'data')]
 
         for dir_path in critical_dirs:
@@ -143,4 +158,4 @@ app = create_app()
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"🚀 Iniciando servidor en puerto {port}")
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port)
