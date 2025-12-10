@@ -161,6 +161,14 @@ def create_app():
             "example": "https://anime-recommender-1-x854.onrender.com/api/recommendations/SrAlex16"
         })
 
+    @app.route("/api/status", methods=["GET"])
+    def status():
+        return jsonify({
+            "status": "ok",
+            "service": "anime-recommender",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        })
+
     return app
 
 # 🔥 CRÍTICO: Crear la instancia de app
