@@ -59,6 +59,11 @@ def fetch_page(page, per_page=20):
 def normalize(media_list):
     rows = []
     for m in media_list:
+        score = m.get("averageScore")
+        if score is None:
+            # Libertad de proyecto personal: si AniList no da score, ponemos 0
+            score = 0
+
         rows.append({
             "AniListID": m.get("id"),
             "MalID": m.get("idMal"),
@@ -66,7 +71,7 @@ def normalize(media_list):
             "description": m.get("description"),
             "genres": m.get("genres") or [],
             "tags": [t["name"] for t in m.get("tags", []) if isinstance(t, dict) and t.get("name")],
-            "score": m.get("averageScore"),
+            "score": score,
             "episodes": m.get("episodes"),
             "status": m.get("status"),
             "type": m.get("type"),
