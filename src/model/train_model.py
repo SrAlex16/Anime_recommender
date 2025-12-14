@@ -160,11 +160,11 @@ def preprocess_data(df):
         return None
 
 def get_recommendations(df, cosine_sim, top_n=10):
-    """Función CORREGIDA: recomienda animes excluyendo los que el usuario ya vio (por MAL_ID)"""
+    """Función CORREGIDA: recomienda animes excluyendo los que el usuario ya vio Y los de la blacklist"""
     try:
         debug_log("🎯 Calculando recomendaciones...")
 
-        # 🔥 Obtener IDs del usuario directamente del JSON
+        # 🔥 1. Obtener IDs del usuario directamente del JSON
         user_anime_ids_from_json = get_user_anime_ids_from_source()
         if not user_anime_ids_from_json:
             debug_log("❌ No se pudieron obtener IDs del usuario desde el JSON")
@@ -172,45 +172,53 @@ def get_recommendations(df, cosine_sim, top_n=10):
 
         debug_log(f"🛑 Excluyendo {len(user_anime_ids_from_json)} animes del usuario (por MAL_ID)")
 
-        # 🔥 Asegurar que la columna MAL_ID sea int
+        # 🔥 2. Cargar blacklist
+        blacklist = load_blacklist()
+        debug_log(f"🚫 Blacklist cargada: {len(blacklist)} IDs bloqueados")
+        
+        # 🔥 3. Combinar exclusiones: usuario + blacklist
+        excluded_ids = user_anime_ids_from_json.union(set(blacklist))
+        debug_log(f"🛡️ Total de IDs a excluir: {len(excluded_ids)} (usuario: {len(user_anime_ids_from_json)}, blacklist: {len(blacklist)})")
+
+        # 🔥 4. Asegurar que la columna MAL_ID sea int
         df['MAL_ID'] = df['MAL_ID'].fillna(0).astype(int)
 
-        # Calcular scores híbridos
+        # 5. Calcular scores híbridos
         score_vector = df['user_score'].values.astype(float) / 10.0
 
-        # Ajustar dimensiones si es necesario
+        # 6. Ajustar dimensiones si es necesario
         if score_vector.shape[0] != cosine_sim.shape[1]:
             debug_log(f"⚠️ Ajustando dimensiones: score_vector {score_vector.shape} vs cosine_sim {cosine_sim.shape}")
             min_dim = min(score_vector.shape[0], cosine_sim.shape[1])
             score_vector = score_vector[:min_dim]
             cosine_sim = cosine_sim[:min_dim, :min_dim]
 
-        # Calcular puntuaciones híbridas
+        # 7. Calcular puntuaciones híbridas
         total_scores = np.dot(cosine_sim, score_vector)
         recs = df.copy()
         recs['hybrid_score'] = total_scores
 
-        # 🔥 FILTRADO: excluir animes ya vistos (MAL_ID)
-        recs = recs[~recs['MAL_ID'].isin(user_anime_ids_from_json)].copy()
+        # 🔥 8. FILTRADO: excluir animes ya vistos Y blacklist (MAL_ID)
+        recs = recs[~recs['MAL_ID'].isin(excluded_ids)].copy()
         debug_log(f"✅ Filtrado completado. Animes disponibles: {len(recs)}")
 
         if recs.empty:
             debug_log("⚠️ No hay recomendaciones disponibles después del filtrado.")
             return pd.DataFrame()
 
-        # Filtrar por score mínimo de MAL
+        # 9. Filtrar por score mínimo de MAL
         recs = recs[recs['score'] >= 70]
         if recs.empty:
             debug_log("⚠️ No hay animes con score >= 70")
             return pd.DataFrame()
 
-        # Ordenar por score híbrido y tomar top N
+        # 10. Ordenar por score híbrido y tomar top N
         recs = recs.sort_values(by='hybrid_score', ascending=False).head(top_n)
 
-        # 🔥 VERIFICACIÓN FINAL: asegurar que no se recomienden animes del usuario
-        conflicts = recs[recs['MAL_ID'].isin(user_anime_ids_from_json)]
+        # 🔥 11. VERIFICACIÓN FINAL: asegurar que no se recomienden animes excluidos
+        conflicts = recs[recs['MAL_ID'].isin(excluded_ids)]
         if not conflicts.empty:
-            debug_log(f"❌ ERROR CRÍTICO: {len(conflicts)} animes del usuario fueron recomendados")
+            debug_log(f"❌ ERROR CRÍTICO: {len(conflicts)} animes excluidos fueron recomendados")
             for _, row in conflicts.iterrows():
                 debug_log(f"   🚫 CONFLICTO: {row['title']} (MAL_ID: {row['MAL_ID']})")
             return pd.DataFrame()
@@ -221,6 +229,11 @@ def get_recommendations(df, cosine_sim, top_n=10):
             debug_log(f"   ✅ {anime['title']} (MAL_ID: {anime['MAL_ID']}) - Score: {anime['score']}")
 
         return recs
+
+    except Exception as e:
+        debug_log(f"❌ Error en get_recommendations: {e}")
+        debug_log(f"❌ Traceback: {traceback.format_exc()}")
+        return pd.DataFrame()
 
     except Exception as e:
         debug_log(f"❌ Error en get_recommendations: {e}")

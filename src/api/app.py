@@ -193,7 +193,145 @@ def create_app():
         except Exception as e:
             print("❌ Error blacklist:", e)
             return jsonify({"status": "error", "message": str(e)}), 500
-
+        
+    @app.route('/api/blacklist', methods=['GET'])
+    def get_blacklist():
+        """Obtener la lista completa de IDs en blacklist"""
+        try:
+            blacklist_path = os.path.join(ROOT_DIR, 'data', 'blacklist.json')
+            
+            if not os.path.exists(blacklist_path):
+                return jsonify({
+                    "status": "success",
+                    "blacklist": [],
+                    "timestamp": datetime.now().isoformat()
+                }), 200
+            
+            with open(blacklist_path, 'r', encoding='utf-8') as f:
+                blacklist = json.load(f)
+            
+            return jsonify({
+                "status": "success",
+                "blacklist": blacklist,
+                "count": len(blacklist),
+                "timestamp": datetime.now().isoformat()
+            }), 200
+            
+        except Exception as e:
+            print(f"❌ Error obteniendo blacklist: {e}")
+            return jsonify({
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+    @app.route('/api/blacklist', methods=['POST'])
+    def add_to_blacklist():
+        """Añadir IDs a la blacklist"""
+        try:
+            data = request.get_json()
+            anime_ids = data.get('anime_ids', [])
+            
+            if not anime_ids:
+                return jsonify({
+                    "status": "error",
+                    "message": "No se proporcionaron IDs para añadir",
+                    "timestamp": datetime.now().isoformat()
+                }), 400
+            
+            # Convertir a enteros
+            anime_ids = [int(id) for id in anime_ids if str(id).isdigit()]
+            
+            blacklist_path = os.path.join(ROOT_DIR, 'data', 'blacklist.json')
+            os.makedirs(os.path.dirname(blacklist_path), exist_ok=True)
+            
+            # Cargar blacklist existente
+            existing_blacklist = []
+            if os.path.exists(blacklist_path):
+                with open(blacklist_path, 'r', encoding='utf-8') as f:
+                    existing_blacklist = json.load(f)
+            
+            # Añadir nuevos IDs (sin duplicados)
+            updated_blacklist = list(set(existing_blacklist + anime_ids))
+            
+            # Guardar
+            with open(blacklist_path, 'w', encoding='utf-8') as f:
+                json.dump(updated_blacklist, f, indent=2)
+            
+            print(f"✅ {len(anime_ids)} IDs añadidos a blacklist. Total: {len(updated_blacklist)}")
+            
+            return jsonify({
+                "status": "success",
+                "message": f"{len(anime_ids)} animes añadidos a la blacklist",
+                "blacklist": updated_blacklist,
+                "count": len(updated_blacklist),
+                "timestamp": datetime.now().isoformat()
+            }), 200
+            
+        except Exception as e:
+            print(f"❌ Error añadiendo a blacklist: {e}")
+            return jsonify({
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+    @app.route('/api/blacklist', methods=['DELETE'])
+    def remove_from_blacklist():
+        """Eliminar IDs de la blacklist"""
+        try:
+            data = request.get_json()
+            anime_ids = data.get('anime_ids', [])
+            
+            if not anime_ids:
+                return jsonify({
+                    "status": "error",
+                    "message": "No se proporcionaron IDs para eliminar",
+                    "timestamp": datetime.now().isoformat()
+                }), 400
+            
+            # Convertir a enteros
+            anime_ids = [int(id) for id in anime_ids if str(id).isdigit()]
+            
+            blacklist_path = os.path.join(ROOT_DIR, 'data', 'blacklist.json')
+            
+            if not os.path.exists(blacklist_path):
+                return jsonify({
+                    "status": "success",
+                    "message": "La blacklist está vacía",
+                    "blacklist": [],
+                    "timestamp": datetime.now().isoformat()
+                }), 200
+            
+            # Cargar blacklist
+            with open(blacklist_path, 'r', encoding='utf-8') as f:
+                existing_blacklist = json.load(f)
+            
+            # Eliminar IDs
+            updated_blacklist = [id for id in existing_blacklist if id not in anime_ids]
+            
+            # Guardar
+            with open(blacklist_path, 'w', encoding='utf-8') as f:
+                json.dump(updated_blacklist, f, indent=2)
+            
+            print(f"✅ {len(anime_ids)} IDs eliminados de blacklist. Total: {len(updated_blacklist)}")
+            
+            return jsonify({
+                "status": "success",
+                "message": f"{len(anime_ids)} animes eliminados de la blacklist",
+                "blacklist": updated_blacklist,
+                "count": len(updated_blacklist),
+                "timestamp": datetime.now().isoformat()
+            }), 200
+            
+        except Exception as e:
+            print(f"❌ Error eliminando de blacklist: {e}")
+            return jsonify({
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
     return app
 
 # 🔥 CRÍTICO: Crear la instancia de app
