@@ -168,6 +168,31 @@ def create_app():
             "service": "anime-recommender",
             "timestamp": datetime.utcnow().isoformat() + "Z",
         })
+    
+    @app.route('/api/blacklist', methods=['POST'])
+    def add_to_blacklist():
+        try:
+            data = request.get_json(force=True)
+            anime_ids = data.get('anime_ids', [])
+            if not isinstance(anime_ids, list):
+                return jsonify({"status": "error", "message": "anime_ids debe ser lista"}), 400
+
+            # Guardar en JSON local (sobrescribimos)
+            blacklist_path = os.path.join(ROOT_DIR, "data", "blacklist.json")
+            existing = []
+            if os.path.exists(blacklist_path):
+                with open(blacklist_path, 'r', encoding='utf-8') as f:
+                    existing = json.load(f)
+            # Unión sin duplicados
+            existing = list(set(existing + [str(i) for i in anime_ids]))
+            with open(blacklist_path, 'w', encoding='utf-8') as f:
+                json.dump(existing, f)
+
+            print(f"✅ Blacklist actualizada: {len(existing)} IDs")
+            return jsonify({"status": "success", "count": len(anime_ids)}), 200
+        except Exception as e:
+            print("❌ Error blacklist:", e)
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     return app
 
