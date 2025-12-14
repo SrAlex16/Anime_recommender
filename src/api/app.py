@@ -83,7 +83,59 @@ def create_app():
             print(f"❌ Error al ejecutar el subproceso: {e}")
             return None, f"Error interno al ejecutar el pipeline: {str(e)}"
 
-    # ENDPOINTS
+    # ========== ENDPOINTS ==========
+    
+    @app.route('/')
+    def home():
+        """Página de inicio"""
+        return jsonify({
+            "message": "Anime Recommendation API",
+            "version": "2.0",
+            "description": "Sistema de recomendación de anime basado en contenido",
+            "endpoints": {
+                "health": "/api/health",
+                "status": "/api/status", 
+                "recommendations": "/api/recommendations/<username>",
+                "blacklist": "/api/blacklist"
+            },
+            "example": "https://anime-recommender-aykp.onrender.com/api/recommendations/SrAlex16"
+        })
+
+    @app.route('/api/health', methods=['GET'])
+    def health_check():
+        """Health check más robusto para Render"""
+        try:
+            # Verificar que los directorios críticos existen
+            required_dirs = ['src', 'src/api', 'src/data', 'src/model']
+            for dir_path in required_dirs:
+                if not os.path.exists(os.path.join(ROOT_DIR, dir_path)):
+                    return jsonify({
+                        "status": "error", 
+                        "message": f"Directorio {dir_path} no encontrado",
+                        "timestamp": datetime.now().isoformat()
+                    }), 500
+                    
+            return jsonify({
+                "status": "healthy", 
+                "timestamp": datetime.now().isoformat(),
+                "python_version": sys.version
+            })
+        except Exception as e:
+            return jsonify({
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now().isoformat()
+            }), 500
+
+    @app.route('/api/status', methods=['GET'])
+    def get_api_status():
+        """Endpoint para verificar estado del servicio"""
+        return jsonify({
+            "status": "running",
+            "service": "anime-recommender",
+            "timestamp": datetime.now().isoformat()
+        })
+
     @app.route('/api/recommendations/<username>', methods=['GET'])
     def get_user_recommendations(username):
         """Endpoint principal para generar recomendaciones"""
@@ -111,89 +163,8 @@ def create_app():
                 "timestamp": datetime.now().isoformat()
             }), 500
 
-    @app.route('/api/status', methods=['GET'])
-    def get_api_status():
-        """Endpoint para verificar estado del servicio"""
-        return jsonify({
-            "status": "running",
-            "timestamp": datetime.now().isoformat()
-        })
-
-    @app.route('/api/health', methods=['GET'])
-    @app.route('/api/health', methods=['GET'])
-    def health_check():
-        """Health check más robusto para Render"""
-        try:
-            # Verificar que los directorios críticos existen
-            required_dirs = ['src', 'src/api', 'src/data', 'src/model']
-            for dir_path in required_dirs:
-                if not os.path.exists(os.path.join(ROOT_DIR, dir_path)):
-                    return jsonify({
-                        "status": "error", 
-                        "message": f"Directorio {dir_path} no encontrado",
-                        "timestamp": datetime.now().isoformat()
-                    }), 500
-                    
-            return jsonify({
-                "status": "healthy", 
-                "timestamp": datetime.now().isoformat(),
-                "python_version": sys.version
-            })
-        except Exception as e:
-            return jsonify({
-                "status": "error",
-                "message": str(e),
-                "timestamp": datetime.now().isoformat()
-            }), 500
-
-    @app.route('/')
-    def home():
-        """Página de inicio"""
-        return jsonify({
-            "message": "Anime Recommendation API",
-            "version": "2.0",
-            "description": "Sistema de recomendación de anime basado en contenido",
-            "endpoints": {
-                "health": "/api/health",
-                "status": "/api/status", 
-                "recommendations": "/api/recommendations/<username>"
-            },
-            "example": "https://anime-recommender-1-x854.onrender.com/api/recommendations/SrAlex16"
-        })
-
-    @app.route("/api/status", methods=["GET"])
-    def status():
-        return jsonify({
-            "status": "ok",
-            "service": "anime-recommender",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-        })
+    # ========== BLACKLIST ENDPOINTS ==========
     
-    @app.route('/api/blacklist', methods=['POST'])
-    def add_to_blacklist():
-        try:
-            data = request.get_json(force=True)
-            anime_ids = data.get('anime_ids', [])
-            if not isinstance(anime_ids, list):
-                return jsonify({"status": "error", "message": "anime_ids debe ser lista"}), 400
-
-            # Guardar en JSON local (sobrescribimos)
-            blacklist_path = os.path.join(ROOT_DIR, "data", "blacklist.json")
-            existing = []
-            if os.path.exists(blacklist_path):
-                with open(blacklist_path, 'r', encoding='utf-8') as f:
-                    existing = json.load(f)
-            # Unión sin duplicados
-            existing = list(set(existing + [str(i) for i in anime_ids]))
-            with open(blacklist_path, 'w', encoding='utf-8') as f:
-                json.dump(existing, f)
-
-            print(f"✅ Blacklist actualizada: {len(existing)} IDs")
-            return jsonify({"status": "success", "count": len(anime_ids)}), 200
-        except Exception as e:
-            print("❌ Error blacklist:", e)
-            return jsonify({"status": "error", "message": str(e)}), 500
-        
     @app.route('/api/blacklist', methods=['GET'])
     def get_blacklist():
         """Obtener la lista completa de IDs en blacklist"""
@@ -204,6 +175,7 @@ def create_app():
                 return jsonify({
                     "status": "success",
                     "blacklist": [],
+                    "count": 0,
                     "timestamp": datetime.now().isoformat()
                 }), 200
             
@@ -224,7 +196,7 @@ def create_app():
                 "message": str(e),
                 "timestamp": datetime.now().isoformat()
             }), 500
-        
+    
     @app.route('/api/blacklist', methods=['POST'])
     def add_to_blacklist():
         """Añadir IDs a la blacklist"""
@@ -275,7 +247,7 @@ def create_app():
                 "message": str(e),
                 "timestamp": datetime.now().isoformat()
             }), 500
-        
+    
     @app.route('/api/blacklist', methods=['DELETE'])
     def remove_from_blacklist():
         """Eliminar IDs de la blacklist"""
@@ -300,6 +272,7 @@ def create_app():
                     "status": "success",
                     "message": "La blacklist está vacía",
                     "blacklist": [],
+                    "count": 0,
                     "timestamp": datetime.now().isoformat()
                 }), 200
             
@@ -331,7 +304,7 @@ def create_app():
                 "message": str(e),
                 "timestamp": datetime.now().isoformat()
             }), 500
-        
+
     return app
 
 # 🔥 CRÍTICO: Crear la instancia de app
