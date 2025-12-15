@@ -235,11 +235,6 @@ def get_recommendations(df, cosine_sim, top_n=10):
         debug_log(f"❌ Traceback: {traceback.format_exc()}")
         return pd.DataFrame()
 
-    except Exception as e:
-        debug_log(f"❌ Error en get_recommendations: {e}")
-        debug_log(f"❌ Traceback: {traceback.format_exc()}")
-        return pd.DataFrame()
-
 def get_anime_statistics(df):
     """Calcula estadísticas del usuario"""
     stats = {}

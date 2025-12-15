@@ -1,4 +1,4 @@
-# src/services/get_recommendations_for_user.py
+# src/services/get_recommendations_for_user.py - VERSIÓN OPTIMIZADA
 import sys
 import json
 import subprocess
@@ -16,38 +16,17 @@ def debug_log(message):
     """Función de logging para debug - FORZAR FLUSH"""
     print(f"🔍 [DEBUG] {message}", file=sys.stderr, flush=True)
 
-def verify_no_list_conflicts(df, recs):
-    """Verifica que no se recomienden animes de la lista del usuario"""
-    debug_log("🔍 VERIFICANDO QUE NO SE RECOMIENDEN ANIMES DE LA LISTA...")
-    
-    # Obtener lista de animes del usuario (todos los estados excepto NO_INTERACTUADO)
-    user_anime_ids = df[df['my_status'] != 'NO_INTERACTUADO']['id'].tolist()
-    recommended_ids = recs['id'].tolist()
-    
-    # Verificar conflictos
-    conflicts = set(user_anime_ids).intersection(set(recommended_ids))
-    if conflicts:
-        debug_log(f"❌ ALERTA: {len(conflicts)} animes de la lista fueron recomendados")
-        # Log detallado de los conflictos
-        conflict_animes = df[df['id'].isin(conflicts)][['id', 'title', 'my_status']]
-        for _, anime in conflict_animes.iterrows():
-            debug_log(f"   🚫 {anime['title']} - Estado: {anime['my_status']}")
-    else:
-        debug_log("✅ VERIFICACIÓN EXITOSA: Ningún anime de la lista fue recomendado")
-    
-    return len(conflicts) == 0
-
 def get_recommendations_service(username):
     """
-    Orquesta el proceso completo con mejor manejo de errores
+    Orquesta el proceso completo OPTIMIZADO
     """
     try:
         debug_log(f"Iniciando servicio para usuario: {username}")
 
-        # 🔥 VERIFICAR DATOS PRECARGADOS
+        # 🔥 OPTIMIZACIÓN 1: Verificar si el dataset base existe
         check_preloaded_data()
         
-        # 1. Importaciones dentro de la función para evitar problemas
+        # Importaciones
         try:
             from data.download_mal_list import download_user_list
             from data.prepare_data import run_full_preparation_flow
@@ -61,16 +40,29 @@ def get_recommendations_service(username):
                 'timestamp': datetime.now().isoformat()
             })
 
-        # 2. DESCARGA LA LISTA DEL USUARIO
-        debug_log("Descargando lista del usuario...")
-        if not download_user_list(username):
-            return json.dumps({
-                'status': 'error',
-                'message': f"No se pudo descargar la lista de '{username}'. Verifica que el usuario existe y la lista es pública.",
-                'timestamp': datetime.now().isoformat()
-            })
+        # 🔥 OPTIMIZACIÓN 2: Verificar si ya tenemos datos parseados recientes
+        user_ratings_path = os.path.join(ROOT_DIR, 'data', 'user_ratings.csv')
+        user_json_path = os.path.join(ROOT_DIR, 'data', 'user_mal_list.json')
+        
+        # Si los datos del usuario existen y son recientes (menos de 1 hora), reutilizarlos
+        skip_download = False
+        if os.path.exists(user_json_path) and os.path.exists(user_ratings_path):
+            file_age = datetime.now().timestamp() - os.path.getmtime(user_json_path)
+            if file_age < 3600:  # 1 hora
+                debug_log(f"⚡ Reutilizando datos del usuario (edad: {int(file_age)}s)")
+                skip_download = True
 
-        # 3. PREPARA EL DATASET
+        # Descargar lista del usuario solo si es necesario
+        if not skip_download:
+            debug_log("Descargando lista del usuario...")
+            if not download_user_list(username):
+                return json.dumps({
+                    'status': 'error',
+                    'message': f"No se pudo descargar la lista de '{username}'. Verifica que el usuario existe y la lista es pública.",
+                    'timestamp': datetime.now().isoformat()
+                })
+
+        # 🔥 OPTIMIZACIÓN 3: Preparar dataset (rápido si ya existe merged_anime.csv)
         debug_log("Preparando dataset...")
         try:
             run_full_preparation_flow(username)
@@ -83,13 +75,38 @@ def get_recommendations_service(username):
                 'timestamp': datetime.now().isoformat()
             })
 
-        # 4. ENTRENAR MODELO Y GENERAR RECOMENDACIONES
+        # 🔥 OPTIMIZACIÓN 4: Cargar y procesar (con caché de similitud si es posible)
         debug_log("Generando recomendaciones...")
         try:
             df = load_data()
             debug_log(f"✅ Dataset cargado: {len(df)} filas")
             
-            sim = preprocess_data(df)
+            # Verificar si existe matriz de similitud cacheada
+            sim_cache_path = os.path.join(ROOT_DIR, 'data', 'similarity_matrix.npz')
+            
+            if os.path.exists(sim_cache_path):
+                # Verificar edad del caché (regenerar si tiene más de 24 horas)
+                cache_age = datetime.now().timestamp() - os.path.getmtime(sim_cache_path)
+                if cache_age < 86400:  # 24 horas
+                    debug_log(f"⚡ Reutilizando matriz de similitud cacheada (edad: {int(cache_age/3600)}h)")
+                    import numpy as np
+                    from scipy import sparse
+                    sim = sparse.load_npz(sim_cache_path).toarray()
+                else:
+                    debug_log("🔄 Caché antiguo, regenerando matriz...")
+                    sim = preprocess_data(df)
+                    if sim is not None:
+                        sparse.save_npz(sim_cache_path, sparse.csr_matrix(sim))
+            else:
+                debug_log("🔧 Entrenando modelo (primera vez)...")
+                sim = preprocess_data(df)
+                if sim is not None:
+                    # Guardar matriz de similitud para futuros usos
+                    import numpy as np
+                    from scipy import sparse
+                    sparse.save_npz(sim_cache_path, sparse.csr_matrix(sim))
+                    debug_log("✅ Matriz de similitud guardada en caché")
+            
             if sim is None:
                 raise Exception("No se pudo entrenar el modelo.")
 
@@ -98,11 +115,6 @@ def get_recommendations_service(username):
             
             if recs.empty:
                 raise Exception("No se generaron recomendaciones.")
-
-            # 🔥 VERIFICAR QUE NO HAY CONFLICTOS CON LA LISTA DEL USUARIO
-            verification_passed = verify_no_list_conflicts(df, recs)
-            if not verification_passed:
-                debug_log("⚠️ Advertencia: Algunas recomendaciones están en la lista del usuario")
             
             stats = get_anime_statistics(df)
             recommendations_json = json.loads(recs.to_json(orient='records'))
@@ -113,7 +125,6 @@ def get_recommendations_service(username):
                 'count': len(recommendations_json),
                 'statistics': stats,
                 'recommendations': recommendations_json,
-                'verification_passed': verification_passed
             }
             
             debug_log("✅ Proceso completado exitosamente")
@@ -143,7 +154,7 @@ def check_preloaded_data():
     
     # Verificar si el archivo existe y tiene tamaño suficiente
     if not os.path.exists(MERGED_ANIME_PATH) or os.path.getsize(MERGED_ANIME_PATH) < 10000:
-        debug_log("📥 Dataset base no encontrado. Descargando...")
+        debug_log("🔥 Dataset base no encontrado. Descargando...")
         try:
             from data.fetch_datasets import main as fetch_main
             fetch_main()
@@ -159,7 +170,6 @@ if __name__ == "__main__":
         username = sys.argv[1]
         debug_log(f"Ejecutando para usuario: {username}")
         
-        # 🔥 CRÍTICO: Forzar encoding y flushing en Render
         try:
             # Forzar stdout a UTF-8 y sin buffering
             if sys.stdout.encoding != 'UTF-8':
@@ -168,7 +178,6 @@ if __name__ == "__main__":
             
             result = get_recommendations_service(username)
             if result:
-                # 🔥 IMPRIMIR DIRECTAMENTE SIN BUFFERING
                 print(result, flush=True)
             else:
                 error_output = json.dumps({
@@ -186,5 +195,4 @@ if __name__ == "__main__":
             })
             print(error_output, flush=True)
     else:
-        # Sin argumentos = modo servidor, salir silenciosamente
         sys.exit(0)
