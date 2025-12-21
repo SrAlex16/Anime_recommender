@@ -82,7 +82,7 @@ def get_recommendations_service(username):
             debug_log(f"✅ Dataset cargado: {len(df)} filas")
             
             # Verificar si existe matriz de similitud cacheada
-            sim_cache_path = os.path.join(ROOT_DIR, 'data', 'similarity_matrix.npz')
+            sim_cache_path = os.path.join(ROOT_DIR, 'similarity_matrix.npz')
             
             if os.path.exists(sim_cache_path):
                 # Verificar edad del caché (regenerar si tiene más de 24 horas)
