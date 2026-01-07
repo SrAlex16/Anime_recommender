@@ -1,17 +1,15 @@
 
-# 🤖 Anime Recommender (Content-Based)
-
-Este proyecto implementa un sistema de recomendación de anime basado en contenido (**Content-Based Filtering**) utilizando datos del catálogo de **AniList** y la lista de visualización personal de un usuario (exportada vía Endopoint MyAnimeList JSON).
-
-El sistema analiza los géneros, temas y descripciones de los animes que el usuario ha visto y puntuado, y luego utiliza una matriz de similitud (TF-IDF y SVD) para sugerir títulos similares de alto score que el usuario aún no ha explorado.
-
+# 🤖 Anime Recommender 
+Sistema de recomendación de anime que utiliza Content-Based Filtering con ML, combinando Python/Flask (backend) + Flutter (app móvil).
 
 
 ## ✨ Características Principales
-- **Content-Based Filtering:** Utiliza la descripción, géneros y tags para crear un perfil de contenido.
-- **Dimensionalidad Reducida (SVD):** Emplea SVD (Singular Value Decomposition) sobre la matriz TF-IDF para manejar grandes volúmenes de características de texto.
+- **Filtrado híbrido (similitud + score de comunidad):** Utiliza la descripción, géneros y tags para crear un perfil de contenido.
+- **Backend API REST:** Desplegado en Render
+- Content-Based Filtering con TF-IDF y SVD
 - **Filtrado Híbrido:** Excluye automáticamente animes ya vistos y utiliza una combinación de la similitud del contenido con el score de la comunidad (AniList) para priorizar las recomendaciones.
 - **Blacklist:** Permite al usuario excluir manualmente animes que no desea que se le recomienden en el futuro.
+- Caché inteligente y soporte multiidioma
 ## 🚀 Instalación y Uso
 
 **Requisitos**
@@ -35,27 +33,36 @@ source venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
-> [!NOTE] 
-> El archivo `requirements.txt` contendrá librerías como pandas, numpy, scikit-learn, etc.
+> [!Nota] 
+> El archivo `requirements.txt` contendrá librerías como pandas, numpy,          scikit-learn, etc.
 
 4. **Configuración Inicial de Datos**
-   El usuario debe tener su lista de MAL pública para descargarla sin login e indicar su username en el programa cuando se lo pida.
-
-- **Usa tu XML:** Coloca animelist.xml en \anime_recommender\data.
-
-5. **Ejecutar el Recomendador**
-El script `train_model.py` se encargará automáticamente de descargar, limpiar y fusionar el catálogo de AniList con tu lista personal (si es la primera vez que se ejecuta o si los archivos de datos no existen).
-```bash
-python src/model/train_model.py
-```
-El programa te mostrará las estadísticas de tu lista y las 10 mejores recomendaciones.
+La API extrae los datos registrados en la cuenta de MyAnimeList del usuario.
+> [!Nota] 
+> Es necesario que el usuario tenga cuenta pública de MyAnimeList.
 ## 🧪 Tests
 
 Para garantizar que el aislamiento del motor de recomendación funciona correctamente sin depender de los datos de producción (evitando la "fuga de mocks"), puedes ejecutar los tests.
 
+**Back-End**
 ```bash
 python -m pytest src/tests/run_tests.py
 ```
+
+**Front-End**
+```bash
+flutter test
+```
+## 🐛 Troubleshooting
+
+| Problema | Solución                |
+| :-------- | :-|
+| `"No se pudo descargar lista"` | Lista MAL debe ser públic |
+| `"Timeout en API"` | Primera ejecución tarda ~5 min |
+| `"No hay recomendaciones"` | Mínimo 5 animes puntuados |
+
+
+
 ## 📄 Licencia
 
 [Licencia de uso personal / Personal Use License](https://github.com/SrAlex16/Anime_recommender/blob/main/LICENSE.md#licencia-de-uso-personal--personal-use-license)
